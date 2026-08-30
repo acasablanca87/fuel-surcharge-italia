@@ -1,0 +1,43 @@
+name: Aggiornamento Settimanale Dati MASE
+
+on:
+  # Esecuzione programmata ogni Martedì alle 11:30 UTC (13:30 ora italiana)
+  schedule:
+    - cron: '30 11 * * 2'
+  # Consente anche l'avvio manuale con un click dalla pagina GitHub
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-mase-data:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Scarica il repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Configura Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: ⚡ Esegui lo script di download MASE
+        run: |
+          python fetch_data.py
+
+      - name: 💾 Controlla e salva i dati aggiornati
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Se il file JSON è stato modificato, fai commit e push
+          if git status --porcelain data/gasolio_mase.json | grep -q "data/gasolio_mase.json"; then
+            git add data/gasolio_mase.json
+            git commit -m "chore(data): aggiornamento automatico prezzi gasolio MASE [skip ci]"
+            git push
+            echo "✅ Nuovi dati MASE pubblicati e salvati nel repository!"
+          else
+            echo "ℹ️ Nessun nuovo dato rilevato: il file è già aggiornato."
+          fi
