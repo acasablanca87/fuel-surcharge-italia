@@ -1,0 +1,15 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+
+# Mac OS junk
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor settings
+.vscode/
+.idea/
