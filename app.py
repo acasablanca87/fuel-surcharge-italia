@@ -1,64 +1,84 @@
 import json
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
+import calendar
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
 # --- CONFIGURAZIONE PAGINA STREAMLIT ---
 st.set_page_config(
-    page_title="Fuel Surcharge Italia | Benchmark Gasolio Autotrasporto",
+    page_title="Fuel Surcharge Italia",
     page_icon="⛽",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# --- STILE CSS PERSONALIZZATO (MODERN DARK/LIGHT RESPONSIVE) ---
+# --- FUNZIONI FORMATTAZIONE LOCALE ITALIANO ---
+def fmt_it(val: float, decimals: int = 3, sign: bool = False) -> str:
+    """Converte un valore numerico nel formato standard italiano con virgola."""
+    prefix = "+" if sign and val > 0.00001 else ""
+    formatted = f"{val:.{decimals}f}".replace(".", ",")
+    return f"{prefix}{formatted}"
+
+def get_week_meta(date_str: str) -> dict:
+    """Calcola intervallo effettivo (Lunedì-Domenica) e numero settimana ISO."""
+    dt = datetime.strptime(date_str, "%Y-%m-%d").date()
+    obs_start = dt - timedelta(days=7)
+    obs_end = dt - timedelta(days=1)
+    iso_year, iso_week, _ = obs_start.isocalendar()
+    label = f"Settimana {iso_week:02d} / {iso_year} (dal {obs_start.strftime('%d/%m')} al {obs_end.strftime('%d/%m/%Y')})"
+    return {
+        "raw_date": date_str,
+        "label": label,
+        "obs_start": obs_start,
+        "obs_end": obs_end,
+        "iso_week": iso_week,
+        "iso_year": iso_year
+    }
+
+# --- STILE CSS RESPONSIVO (LIGHT & DARK ADAPTIVE) ---
 st.markdown("""
 <style>
     .main-header {
-        font-size: 2.2rem;
+        font-size: 2.1rem;
         font-weight: 800;
         letter-spacing: -0.5px;
-        margin-bottom: 0px;
-    }
-    .sub-header {
-        color: #6c757d;
-        font-size: 0.95rem;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1.2rem;
     }
     .hero-card {
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-        border: 1px solid #334155;
-        border-radius: 16px;
-        padding: 24px;
-        color: #ffffff;
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
-        margin-bottom: 1.5rem;
+        background-color: var(--secondary-background-color);
+        border: 1px solid rgba(128, 128, 128, 0.25);
+        border-radius: 14px;
+        padding: 22px 26px;
+        margin-bottom: 1.2rem;
     }
     .hero-title {
         font-size: 0.85rem;
         text-transform: uppercase;
-        letter-spacing: 1.2px;
-        color: #94a3b8;
+        letter-spacing: 1px;
+        color: var(--text-color);
+        opacity: 0.75;
         font-weight: 600;
     }
     .hero-value {
-        font-size: 3.5rem;
+        font-size: 2.5rem;
         font-weight: 900;
         line-height: 1.1;
-        margin: 10px 0;
+        margin: 8px 0 14px 0;
     }
-    .hero-positive { color: #f87171; }
-    .hero-negative { color: #4ade80; }
-    .hero-neutral { color: #cbd5e1; }
+    .hero-positive { color: #ef4444; }
+    .hero-negative { color: #22c55e; }
+    .hero-neutral { color: var(--text-color); }
     .metric-pill {
         display: inline-block;
-        background: rgba(255, 255, 255, 0.08);
-        border-radius: 8px;
+        background: rgba(128, 128, 128, 0.12);
+        border-radius: 6px;
         padding: 6px 12px;
         margin-right: 8px;
+        margin-bottom: 6px;
         font-size: 0.85rem;
+        color: var(--text-color);
     }
     .source-badge {
         font-size: 0.8rem;
@@ -88,30 +108,28 @@ monthly_list = data.get("monthly_history", [])
 annual_dict = data.get("annual_averages", {})
 metadata = data.get("metadata", {})
 
-# --- LETTURA / SCRITTURA PARAMETRI URL ---
+# --- PARAMETRI URL ---
 query_params = st.query_params
 qp_price_type = query_params.get("price_type", "pompa")
 qp_weight = int(query_params.get("weight", 30))
-qp_view = query_params.get("view", "monthly")
+qp_granularity = query_params.get("granularity", "mensile")
 
-# --- HEADER ISTITUZIONALE ---
+# --- HEADER ESSENZIALE ---
 col_h1, col_h2 = st.columns([3, 1])
 with col_h1:
     st.markdown('<div class="main-header">⛽ Fuel Surcharge Italia</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sub-header">Indice Ufficiale di Adeguamento Carburante per l\'Autotrasporto Merci (D.Lgs. 286/2005)</div>', unsafe_allow_html=True)
 
 with col_h2:
     last_up = metadata.get("last_updated", "N/D")[:10]
     st.markdown(f"""
-    <div style="text-align: right; padding-top: 10px;">
-        <span class="source-badge">● MASE Ufficiale</span><br>
-        <span style="font-size: 0.75rem; color: #64748b;">Aggiornato al: {last_up}</span>
+    <div style="text-align: right; padding-top: 5px;">
+        <span class="source-badge">● Dati Ufficiali MASE</span><br>
+        <span style="font-size: 0.75rem; color: #64748b;">Rilevazione al: {last_up}</span>
     </div>
     """, unsafe_allow_html=True)
 
-# --- 1. FILTRI GLOBALI A MONTE ---
-st.markdown("##### ⚙️ Configurazione Parametri Globali")
-cfg_col1, cfg_col2, cfg_col3 = st.columns([1.5, 1.5, 1])
+# --- 1. FILTRI GLOBALI (GRIGLIA 2x2) ---
+st.markdown("##### ⚙️ Configurazione Parametri")
 
 price_type_options = {
     "pompa": "Prezzo alla Pompa (Globale con IVA)",
@@ -124,7 +142,9 @@ price_keys = {
     "netto": "netto"
 }
 
-with cfg_col1:
+# RIGA 1: Base Prezzo | Incidenza %
+r1_col1, r1_col2 = st.columns(2)
+with r1_col1:
     selected_price_type = st.selectbox(
         "Base di Prezzo Ministeriale:",
         options=list(price_type_options.keys()),
@@ -133,88 +153,152 @@ with cfg_col1:
     )
     active_key = price_keys[selected_price_type]
 
-with cfg_col2:
-    target_mode = st.selectbox(
-        "Modalità Periodo Base (Target):",
-        options=["Anno Solare", "Singolo Mese", "Range Personalizzato (Da / A)"]
-    )
-
-with cfg_col3:
+with r1_col2:
     fuel_weight_pct = st.number_input(
         "Incidenza Gasolio (%):",
         min_value=1,
         max_value=100,
         value=qp_weight,
-        step=1,
-        help="Standard MIT per veicoli pesanti: 25% - 35% (Default: 30%)"
+        step=1
     )
 
-# Sincronizza parametri nell'URL per condivisione link
-st.query_params["price_type"] = selected_price_type
-st.query_params["weight"] = str(fuel_weight_pct)
-st.query_params["view"] = qp_view
+# RIGA 2: Modalità Target | Selettore Dinamico Target
+r2_col1, r2_col2 = st.columns(2)
+with r2_col1:
+    target_mode = st.selectbox(
+        "Modalità Periodo Base (Target):",
+        options=["Anno Solare", "Singolo Mese", "Range Personalizzato (Da / A)"]
+    )
 
-# --- DETERMINAZIONE PREZZO TARGET ---
 target_price = 0.0
 target_label = ""
+target_end_date = date(2025, 12, 31)
 
-if target_mode == "Anno Solare":
-    available_years = sorted(list(annual_dict.keys()), reverse=True)
-    default_year_idx = available_years.index("2025") if "2025" in available_years else 0
-    sel_year = st.selectbox("Seleziona Anno Solare di Riferimento:", available_years, index=default_year_idx)
-    target_data = annual_dict.get(sel_year, {})
-    target_price = target_data.get(active_key, 0.0)
-    target_label = f"Media Anno {sel_year}"
+with r2_col2:
+    if target_mode == "Anno Solare":
+        available_years = sorted(list(annual_dict.keys()), reverse=True)
+        default_year_idx = available_years.index("2025") if "2025" in available_years else 0
+        sel_year = st.selectbox("Anno Solare di Riferimento:", available_years, index=default_year_idx)
+        target_data = annual_dict.get(sel_year, {})
+        target_price = target_data.get(active_key, 0.0)
+        target_label = f"Media Anno {sel_year}"
+        target_end_date = date(int(sel_year), 12, 31)
 
-elif target_mode == "Singolo Mese":
-    df_m = pd.DataFrame(monthly_list)
-    df_m["label"] = df_m["nome_mese"] + " " + df_m["anno"].astype(str)
-    month_options = df_m["label"].tolist()[::-1]
-    sel_month = st.selectbox("Seleziona Mese di Riferimento:", month_options, index=0)
-    matched_row = df_m[df_m["label"] == sel_month].iloc[0]
-    target_price = matched_row[active_key]
-    target_label = f"Media {sel_month}"
+    elif target_mode == "Singolo Mese":
+        df_m = pd.DataFrame(monthly_list)
+        df_m["label"] = df_m["nome_mese"] + " " + df_m["anno"].astype(str)
+        month_options = df_m["label"].tolist()[::-1]
+        sel_month = st.selectbox("Mese di Riferimento:", month_options, index=0)
+        matched_row = df_m[df_m["label"] == sel_month].iloc[0]
+        target_price = matched_row[active_key]
+        target_label = f"Media {sel_month}"
+        y_val, m_val = int(matched_row["anno"]), int(matched_row["mese"])
+        last_day = calendar.monthrange(y_val, m_val)[1]
+        target_end_date = date(y_val, m_val, last_day)
 
-else: # Range Personalizzato
-    r_col1, r_col2 = st.columns(2)
-    with r_col1:
-        d_start = st.date_input("Data Inizio:", value=date(2025, 1, 1))
-    with r_col2:
-        d_end = st.date_input("Data Fine:", value=date(2025, 12, 31))
-    
-    df_w = pd.DataFrame(weekly_list)
-    df_w["data_dt"] = pd.to_datetime(df_w["data"]).dt.date
-    mask = (df_w["data_dt"] >= d_start) & (df_w["data_dt"] <= d_end)
-    df_filtered = df_w.loc[mask]
-    
-    if len(df_filtered) > 0:
-        target_price = round(df_filtered[active_key].mean(), 4)
-        target_label = f"Media dal {d_start.strftime('%d/%m/%Y')} al {d_end.strftime('%d/%m/%Y')}"
-    else:
-        st.error("Nessuna rilevazione MASE trovata per il range selezionato.")
-        target_price = 1.0
+    else: # Range Personalizzato
+        sub_col1, sub_col2 = st.columns(2)
+        with sub_col1:
+            d_start = st.date_input("Data Inizio:", value=date(2025, 1, 1))
+        with sub_col2:
+            d_end = st.date_input("Data Fine:", value=date(2025, 12, 31))
+        
+        df_w = pd.DataFrame(weekly_list)
+        df_w["data_dt"] = pd.to_datetime(df_w["data"]).dt.date
+        mask = (df_w["data_dt"] >= d_start) & (df_w["data_dt"] <= d_end)
+        df_filtered = df_w.loc[mask]
+        
+        if len(df_filtered) > 0:
+            target_price = float(df_filtered[active_key].mean())
+            target_label = f"Media {d_start.strftime('%d/%m/%y')} - {d_end.strftime('%d/%m/%y')}"
+            target_end_date = d_end
+        else:
+            st.error("Nessuna rilevazione trovata per il range selezionato.")
+            target_price = 1.0
+            target_end_date = d_end
 
-# --- 2. HERO SECTION & DUAL-TOGGLE ---
+# --- 2. SELETTORE PERIODO DA VALUTARE ---
 st.markdown("---")
 
-view_col1, view_col2 = st.columns([1.5, 2.5])
-with view_col1:
-    view_selection = st.radio(
-        "Periodo di Fatturazione Attuale:",
-        options=["Mensile (M-1)", "Settimanale (W-1)"],
+p_col1, p_col2 = st.columns(2)
+
+with p_col1:
+    granularity = st.radio(
+        "Granularità Periodo da Valutare:",
+        options=["Mensile", "Settimanale"],
         horizontal=True,
-        index=0 if qp_view == "monthly" else 1
+        index=0 if qp_granularity == "mensile" else 1
     )
 
-# Determinazione Prezzo Attuale
-if "Mensile" in view_selection:
-    current_record = monthly_list[-1]
-    current_price = current_record.get(active_key, 0.0)
-    current_label = f"{current_record.get('nome_mese')} {current_record.get('anno')} (M-1)"
-else:
-    current_record = weekly_list[-1]
-    current_price = current_record.get(active_key, 0.0)
-    current_label = f"Settimana {current_record.get('data')} (W-1)"
+# Sincronizzazione URL
+st.query_params["price_type"] = selected_price_type
+st.query_params["weight"] = str(fuel_weight_pct)
+st.query_params["granularity"] = granularity.lower()
+
+# Gestione Liste Dinamiche Storiche
+mesi_italiani = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", 
+                 "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
+
+if granularity == "Mensile":
+    month_dropdown_options = []
+    # Ordine decrescente (dal più recente al più vecchio)
+    for idx, item in enumerate(reversed(monthly_list)):
+        m_name = item.get("nome_mese")
+        y_num = item.get("anno")
+        if idx == 0:
+            label = f"● Ultimo Mese Disponibile ({m_name} {y_num})"
+        else:
+            label = f"{m_name} {y_num}"
+        month_dropdown_options.append((label, item))
+    
+    with p_col2:
+        selected_month_tuple = st.selectbox(
+            "Mese di Rilevazione Gasolio:",
+            options=month_dropdown_options,
+            format_func=lambda x: x[0]
+        )
+    
+    selected_record = selected_month_tuple[1]
+    current_price = selected_record.get(active_key, 0.0)
+    eval_month_num = int(selected_record.get("mese"))
+    eval_year = int(selected_record.get("anno"))
+    eval_month_name = selected_record.get("nome_mese")
+    
+    # Calcolo mese di applicazione tipico (+1 mese)
+    if eval_month_num == 12:
+        next_month_name = mesi_italiani[0]
+        next_year = eval_year + 1
+    else:
+        next_month_name = mesi_italiani[eval_month_num]
+        next_year = eval_year
+        
+    current_eval_label = f"{eval_month_name} {eval_year}"
+    commercial_app_text = f"Fatture di {next_month_name} {next_year} (con slittamento mese prec.) oppure a consuntivo di {eval_month_name} {eval_year}"
+
+else: # Settimanale
+    weekly_meta_list = [get_week_meta(item["data"]) for item in weekly_list]
+    week_dropdown_options = []
+    
+    for idx, meta in enumerate(reversed(weekly_meta_list)):
+        item_data = weekly_list[-(idx + 1)]
+        if idx == 0:
+            label = f"● Ultima Settimana Disponibile - {meta['label']}"
+        else:
+            label = meta["label"]
+        week_dropdown_options.append((label, item_data, meta))
+        
+    with p_col2:
+        selected_week_tuple = st.selectbox(
+            "Settimana di Rilevazione Gasolio:",
+            options=week_dropdown_options,
+            format_func=lambda x: x[0]
+        )
+        
+    selected_record = selected_week_tuple[1]
+    selected_meta = selected_week_tuple[2]
+    current_price = selected_record.get(active_key, 0.0)
+    current_eval_label = selected_meta["label"]
+    commercial_app_text = "Fatturazione settimanale/spot successiva alla rilevazione ufficiale"
 
 # CALCOLO SURCHARGE
 delta_price = current_price - target_price
@@ -222,41 +306,39 @@ delta_price_pct = (delta_price / target_price) * 100 if target_price > 0 else 0.
 surcharge_pct = delta_price_pct * (fuel_weight_pct / 100.0)
 
 # CLASSIFICAZIONE COLORE
-if surcharge_pct > 0.001:
+if surcharge_pct > 0.00001:
     val_class = "hero-positive"
-    sign_prefix = "+"
-elif surcharge_pct < -0.001:
+elif surcharge_pct < -0.00001:
     val_class = "hero-negative"
-    sign_prefix = ""
 else:
     val_class = "hero-neutral"
-    sign_prefix = ""
 
 # RENDERING HERO CARD
 st.markdown(f"""
 <div class="hero-card">
-    <div class="hero-title">Fuel Surcharge Applicabile ({view_selection})</div>
-    <div class="hero-value {val_class}">{sign_prefix}{surcharge_pct:.2f} %</div>
-    <div style="margin-top: 15px;">
-        <span class="metric-pill">⛽ <b>Prezzo Attuale:</b> {current_price:.4f} €/L ({current_label})</span>
-        <span class="metric-pill">🎯 <b>Prezzo Base:</b> {target_price:.4f} €/L ({target_label})</span>
-        <span class="metric-pill">📊 <b>Variazione Grezza:</b> {sign_prefix}{delta_price_pct:.2f}%</span>
+    <div class="hero-title">Fuel Surcharge Calcolato ({granularity})</div>
+    <div class="hero-value {val_class}">{fmt_it(surcharge_pct, 2, sign=True)} %</div>
+    <div>
+        <span class="metric-pill">⛽ <b>Rilevazione Gasolio:</b> {fmt_it(current_price, 3)} €/L ({current_eval_label})</span>
+        <span class="metric-pill">🎯 <b>Prezzo Base (Target):</b> {fmt_it(target_price, 3)} €/L ({target_label})</span>
+        <span class="metric-pill">📊 <b>Variazione Prezzo:</b> {fmt_it(delta_price_pct, 2, sign=True)}%</span>
         <span class="metric-pill">⚖️ <b>Peso Applicato:</b> {fuel_weight_pct}%</span>
+    </div>
+    <div style="margin-top: 10px; font-size: 0.85rem; color: var(--text-color); opacity: 0.85;">
+        💼 <b>Periodo di Applicazione Tipico:</b> {commercial_app_text}
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# --- 3. TABELLA SCAGLIONI PREVISIONALI (+- 0.5%) ---
+# --- 3. TABELLA SCAGLIONI PREVISIONALI (3 COLONNE) ---
 st.markdown("### 📋 Matrice a Scaglioni Previsionali (Passi da 0,5%)")
-st.caption("Forchette di oscillazione del gasolio per pianificazione e trasparenza tariffaria contrattuale.")
+st.caption("Forchette di oscillazione del gasolio per pianificazione e trasparenza tariffaria.")
 
-# Generazione scaglioni centrati attorno al surcharge attuale
-central_step = round(surcharge_pct * 2) / 2 # arrotonda allo 0.5 più vicino
+central_step = round(surcharge_pct * 2) / 2
 steps = [round(central_step + i * 0.5, 2) for i in range(-5, 6)]
 
 table_rows = []
 for s in steps:
-    # Formula inversa per calcolare le soglie di prezzo Da / A
     s_min = s - 0.25
     s_max = s + 0.25
     
@@ -267,42 +349,44 @@ for s in steps:
     
     table_rows.append({
         "Stato": "👉 ATTUALE" if is_current else "",
-        "Fuel Surcharge": f"{'+' if s > 0 else ''}{s:.2f} %",
-        "Prezzo Minimo (€/L)": f"{p_min:.4f}",
-        "Prezzo Massimo (€/L)": f"{p_max:.4f}",
-        "Forchetta Prezzo Gasolio": f"Da {p_min:.4f} € a {p_max:.4f} €"
+        "Fuel Surcharge": f"{fmt_it(s, 2, sign=True)} %",
+        "Forchetta Prezzo Gasolio": f"Da {fmt_it(p_min, 3)} € a {fmt_it(p_max, 3)} €"
     })
 
 df_steps = pd.DataFrame(table_rows)
 st.dataframe(df_steps, use_container_width=True, hide_index=True)
 
-# --- 4. GRAFICO STORICO & TRACKER ACCISE ---
+# --- 4. GRAFICI & TRACKER FISCALE (3 TAB) ---
 st.markdown("---")
-st.markdown("### 📈 Trend Storico Ufficiale e Tracker Fiscale")
+st.markdown("### 📈 Analisi Storica, Trend Surcharge e Regime Fiscale")
 
-tab_chart, tab_accise = st.tabs(["📊 Andamento Storico Prezzi", "🏛️ Monitor Accise & Imposte"])
+tab_chart, tab_surcharge, tab_accise = st.tabs([
+    "📊 Andamento Storico Prezzi", 
+    "📈 Trend Fuel Surcharge (%)", 
+    "🏛️ Monitor Accise & Imposte"
+])
 
 with tab_chart:
     df_w_all = pd.DataFrame(weekly_list)
     
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
+    fig_prices = go.Figure()
+    fig_prices.add_trace(go.Scatter(
         x=df_w_all["data"], y=df_w_all["prezzo_pompa"],
         mode="lines", name="Alla Pompa (Totale)",
-        line=dict(color="#3b82f6", width=2)
+        line=dict(color="#2563eb", width=2)
     ))
-    fig.add_trace(go.Scatter(
-        x=df_w_all["data"], y=df_w_all["imponibile"],
-        mode="lines", name="Imponibile B2B (Netto + Accise)",
-        line=dict(color="#10b981", width=1.5, dash="dot")
-    ))
-    fig.add_trace(go.Scatter(
+    fig_prices.add_trace(go.Scatter(
         x=df_w_all["data"], y=df_w_all["netto"],
         mode="lines", name="Netto Industriale (Materia Prima)",
-        line=dict(color="#f59e0b", width=1.5)
+        line=dict(color="#f59e0b", width=1.8)
+    ))
+    fig_prices.add_trace(go.Scatter(
+        x=df_w_all["data"], y=df_w_all["accisa"],
+        mode="lines", name="Accisa Fissa di Legge",
+        line=dict(color="#10b981", width=1.5)
     ))
     
-    fig.update_layout(
+    fig_prices.update_layout(
         title="Evoluzione Prezzo Gasolio Auto Italia (Rilevazioni Settimanali MASE)",
         xaxis_title="Data Rilevazione",
         yaxis_title="Euro al Litro (€/L)",
@@ -311,18 +395,87 @@ with tab_chart:
         margin=dict(l=20, r=20, t=60, b=20),
         template="plotly_white"
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig_prices, use_container_width=True)
+
+with tab_surcharge:
+    # Generazione serie dinamica a partire dal giorno successivo alla fine del Periodo Target
+    surcharge_points = []
+    
+    if granularity == "Mensile":
+        for row in monthly_list:
+            y_r, m_r = int(row["anno"]), int(row["mese"])
+            last_d = calendar.monthrange(y_r, m_r)[1]
+            row_date = date(y_r, m_r, last_d)
+            if row_date > target_end_date:
+                p_val = row[active_key]
+                d_pct = ((p_val - target_price) / target_price) * 100 if target_price > 0 else 0
+                sur_val = d_pct * (fuel_weight_pct / 100.0)
+                surcharge_points.append({
+                    "data_label": f"{row['nome_mese']} {y_r}",
+                    "data_sort": row_date,
+                    "prezzo": p_val,
+                    "surcharge": sur_val
+                })
+    else: # Settimanale
+        for row in weekly_list:
+            row_date = datetime.strptime(row["data"], "%Y-%m-%d").date()
+            if row_date > target_end_date:
+                p_val = row[active_key]
+                d_pct = ((p_val - target_price) / target_price) * 100 if target_price > 0 else 0
+                sur_val = d_pct * (fuel_weight_pct / 100.0)
+                w_meta = get_week_meta(row["data"])
+                surcharge_points.append({
+                    "data_label": f"Sett. {w_meta['iso_week']:02d}/{w_meta['iso_year']}",
+                    "data_sort": row_date,
+                    "prezzo": p_val,
+                    "surcharge": sur_val
+                })
+                
+    if len(surcharge_points) > 0:
+        df_sur = pd.DataFrame(surcharge_points)
+        
+        fig_sur = go.Figure()
+        
+        # Linea orizzontale di pareggio (Baseline 0%)
+        fig_sur.add_hline(y=0, line_dash="dash", line_color="#94a3b8", annotation_text="Base Target (0,00%)")
+        
+        # Curva dinamica Fuel Surcharge
+        fig_sur.add_trace(go.Scatter(
+            x=df_sur["data_label"],
+            y=df_sur["surcharge"],
+            mode="lines+markers",
+            name="Fuel Surcharge (%)",
+            line=dict(color="#3b82f6", width=2.5),
+            marker=dict(size=6, color="#1d4ed8"),
+            fill="tozeroy",
+            fillcolor="rgba(59, 130, 246, 0.08)",
+            hovertemplate="<b>%{x}</b><br>Fuel Surcharge: %{y:.2f}%<extra></extra>"
+        ))
+        
+        fig_sur.update_layout(
+            title=f"Evoluzione Fuel Surcharge Applicato (Post {target_label})",
+            xaxis_title="Periodo",
+            yaxis_title="Percentuale Surcharge (%)",
+            hovermode="x unified",
+            margin=dict(l=20, r=20, t=60, b=20),
+            template="plotly_white"
+        )
+        st.plotly_chart(fig_sur, use_container_width=True)
+    else:
+        st.info(f"ℹ️ Il Periodo Target selezionato ({target_label}) coincide con i dati più recenti disponibili. Seleziona un Periodo Base antecedente (es. Anno 2025) per osservare l'evoluzione del Fuel Surcharge nel tempo.")
 
 with tab_accise:
     latest_accisa = weekly_list[-1]["accisa"]
     latest_iva = weekly_list[-1]["iva"]
     latest_pompa = weekly_list[-1]["prezzo_pompa"]
     accisa_pct = (latest_accisa / latest_pompa) * 100 if latest_pompa > 0 else 0
+    tot_imposte = latest_accisa + latest_iva
+    tot_imposte_pct = (tot_imposte / latest_pompa) * 100 if latest_pompa > 0 else 0
     
     col_a1, col_a2, col_a3 = st.columns(3)
-    col_a1.metric("Accisa Corrente", f"{latest_accisa:.4f} €/L", f"{accisa_pct:.1f}% sul prezzo pompa")
-    col_a2.metric("Aliquota IVA", "22.0%", f"{latest_iva:.4f} €/L")
-    col_a3.metric("Imposte Totali sul Gasolio", f"{(latest_accisa + latest_iva):.4f} €/L", f"{((latest_accisa + latest_iva)/latest_pompa*100):.1f}% del prezzo finale")
+    col_a1.metric("Accisa Corrente", f"{fmt_it(latest_accisa, 4)} €/L", f"{fmt_it(accisa_pct, 1)}% sul prezzo pompa")
+    col_a2.metric("Aliquota IVA", "22,0%", f"{fmt_it(latest_iva, 4)} €/L")
+    col_a3.metric("Imposte Totali sul Gasolio", f"{fmt_it(tot_imposte, 4)} €/L", f"{fmt_it(tot_imposte_pct, 1)}% del prezzo finale")
     
     st.markdown("""
     #### ℹ️ Note Fiscali per l'Autotrasporto:
