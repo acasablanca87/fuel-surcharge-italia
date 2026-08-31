@@ -450,12 +450,12 @@ with tab_chart:
     fig_prices = go.Figure()
     fig_prices.add_trace(go.Scatter(
         x=df_w_all["data"], y=df_w_all["prezzo_pompa"],
-        mode="lines", name="Prezzo alla Pompa",
+        mode="lines", name="Alla Pompa",
         line=dict(color="#2563eb", width=2)
     ))
     fig_prices.add_trace(go.Scatter(
         x=df_w_all["data"], y=df_w_all["imponibile"],
-        mode="lines", name="Imponibile (senza IVA)",
+        mode="lines", name="Imponibile (no IVA)",
         line=dict(color="#6366f1", width=1.5, dash="dot")
     ))
     fig_prices.add_trace(go.Scatter(
@@ -465,7 +465,7 @@ with tab_chart:
     ))
     fig_prices.add_trace(go.Scatter(
         x=df_w_all["data"], y=df_w_all["accisa"],
-        mode="lines", name="Accisa Fissa",
+        mode="lines", name="Accisa",
         line=dict(color="#10b981", width=1.5)
     ))
     
@@ -478,12 +478,12 @@ with tab_chart:
                     dict(count=1, label="1 Anno", step="year", stepmode="backward"),
                     dict(count=3, label="3 Anni", step="year", stepmode="backward"),
                     dict(count=5, label="5 Anni", step="year", stepmode="backward"),
-                    dict(label="Tutto (2005)", step="all")
+                    dict(label="Tutto", step="all")
                 ]),
                 bgcolor="rgba(128, 128, 128, 0.12)",
                 activecolor="#0284c7",
-                font=dict(family="Titillium Web, sans-serif", size=12),
-                y=1.12,
+                font=dict(family="Titillium Web, sans-serif", size=11),
+                y=1.18,
                 x=0
             ),
             rangeslider=dict(
@@ -498,15 +498,16 @@ with tab_chart:
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=1.22,
+            y=1.02,
             xanchor="left",
-            x=0
+            x=0,
+            font=dict(size=11)
         ),
-        margin=dict(l=20, r=20, t=90, b=20),
+        margin=dict(l=10, r=10, t=75, b=20),
         template="plotly_white",
         font=dict(family="Titillium Web, sans-serif")
     )
-    st.plotly_chart(fig_prices, use_container_width=True)
+    st.plotly_chart(fig_prices, use_container_width=True, config={"displayModeBar": False})
 
 with tab_surcharge:
     surcharge_points = []
@@ -552,6 +553,7 @@ with tab_surcharge:
                 })
                 
     if len(surcharge_points) > 0:
+        st.markdown(f"###### Confronto Evoluzione Fuel Surcharge (Post {target_label})")
         df_sur = pd.DataFrame(surcharge_points)
         
         fig_sur = go.Figure()
@@ -561,8 +563,8 @@ with tab_surcharge:
             x=df_sur["data_label"],
             y=df_sur["sur_pompa"],
             mode="lines+markers",
-            name="Surcharge su Base Pompa",
-            line=dict(color="#2563eb", width=2.5),
+            name="Base Pompa",
+            line=dict(color="#2563eb", width=2.2),
             marker=dict(size=5, color="#1d4ed8"),
             hovertemplate="<b>%{x}</b><br>Surcharge Base Pompa: %{y:.2f}%<extra></extra>"
         ))
@@ -571,25 +573,34 @@ with tab_surcharge:
             x=df_sur["data_label"],
             y=df_sur["sur_netto"],
             mode="lines+markers",
-            name="Surcharge su Base Netto Industriale",
-            line=dict(color="#f59e0b", width=2.5, dash="dot"),
+            name="Base Netto Industriale",
+            line=dict(color="#f59e0b", width=2.2, dash="dot"),
             marker=dict(size=5, color="#d97706"),
             hovertemplate="<b>%{x}</b><br>Surcharge Base Netto: %{y:.2f}%<extra></extra>"
         ))
         
         fig_sur.update_layout(
-            title=f"Confronto Evoluzione Fuel Surcharge (Post {target_label})",
             xaxis_title="Periodo",
             yaxis_title="Percentuale Surcharge (%)",
             hovermode="x unified",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            margin=dict(l=20, r=20, t=60, b=20),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="left",
+                x=0,
+                font=dict(size=11)
+            ),
+            xaxis=dict(
+                automargin=True,
+                tickangle=-45,
+                nticks=8
+            ),
+            margin=dict(l=10, r=10, t=35, b=20),
             template="plotly_white",
             font=dict(family="Titillium Web, sans-serif")
         )
-        st.plotly_chart(fig_sur, use_container_width=True)
-    else:
-        st.info(f"Il Periodo Target selezionato ({target_label}) coincide con i dati più recenti disponibili. Seleziona un Periodo Base antecedente (es. Anno 2025) per osservare l'evoluzione del Fuel Surcharge nel tempo.")
+        st.plotly_chart(fig_sur, use_container_width=True, config={"displayModeBar": False})
 
 # --- 5. NOTA METODOLOGICA & GUIDA ALL'UTILIZZO ---
 st.markdown("---")
