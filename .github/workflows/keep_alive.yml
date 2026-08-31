@@ -1,0 +1,32 @@
+name: Keep-Alive Streamlit Cloud
+
+on:
+  # Esecuzione programmata ogni 2 giorni alle 07:00 UTC (09:00 ora italiana)
+  schedule:
+    - cron: '0 7 */2 * *'
+  # Consente anche l'avvio manuale con un click dalla pagina GitHub
+  workflow_dispatch:
+
+jobs:
+  ping-app:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🌐 Invia Ping Intelligente a Streamlit Cloud
+        run: |
+          APP_URL="https://fuel-surcharge-italia.streamlit.app"
+          HEALTH_URL="https://fuel-surcharge-italia.streamlit.app/_stcore/health"
+          
+          echo "🚀 [1/2] Invio ping alla pagina principale: $APP_URL"
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" "$APP_URL")
+          echo "📡 Risposta HTTP ricevuta: $HTTP_STATUS"
+          
+          echo "🩺 [2/2] Interrogazione endpoint interno salute Streamlit: $HEALTH_URL"
+          HEALTH_RESP=$(curl -s -H "User-Agent: Mozilla/5.0" "$HEALTH_URL" || true)
+          echo "🩺 Risposta health check: $HEALTH_RESP"
+          
+          if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 304 ]; then
+            echo "✅ Streamlit Cloud è attivo, sveglio e perfettamente operativo!"
+          else
+            echo "ℹ️ Risposta server: HTTP $HTTP_STATUS"
+          fi
