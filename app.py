@@ -163,7 +163,7 @@ col_h1, col_h2 = st.columns([2.8, 1.2])
 with col_h1:
     st.markdown("""
     <div class="main-header">FUEL SURCHARGE ITALIA</div>
-    <div style="font-size: 0.82rem; font-weight: 700; color: #0284c7; letter-spacing: 1.2px; text-transform: uppercase; margin-top: -15px; margin-bottom: 12px;">
+    <div style="font-size: 0.82rem; font-weight: 700; color: #64748b; letter-spacing: 1.2px; text-transform: uppercase; margin-top: -15px; margin-bottom: 12px;">
         da Rilevazioni Ufficiali di Gasolio Auto
     </div>
     """, unsafe_allow_html=True)
