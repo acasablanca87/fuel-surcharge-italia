@@ -267,10 +267,13 @@ with st.container(border=True):
             with sub_col2:
                 d_end = st.date_input("Data Fine:", value=date(2025, 12, 31), key="d_end")
             
-            df_w = pd.DataFrame(weekly_list)
-            df_w["data_dt"] = pd.to_datetime(df_w["data"]).dt.date
-            mask = (df_w["data_dt"] >= d_start) & (df_w["data_dt"] <= d_end)
-            df_filtered = df_w.loc[mask]
+            # Filtraggio sulla reale finestra di rilevazione (Lunedì-Domenica)
+            matched_target_rows = []
+            for item in weekly_list:
+                meta = get_week_meta(item["data"])
+                if meta["obs_end"] >= d_start and meta["obs_start"] <= d_end:
+                    matched_target_rows.append(item)
+            df_filtered = pd.DataFrame(matched_target_rows)
             
             if len(df_filtered) > 0:
                 target_price = float(df_filtered[active_key].mean())
@@ -434,13 +437,15 @@ def highlight_current_row(row):
 styled_df = df_steps.style.apply(highlight_current_row, axis=1)
 st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
-# --- 4. GRAFICI & ANALISI STORICA (2 TAB) ---
+# --- 4. GRAFICI, CONSULTAZIONE & SIMULATORE (4 TAB) ---
 st.markdown("---")
-st.markdown("### Analisi Storica e Trend Fuel Surcharge")
+st.markdown("### Analisi Storica, Consultazione e Simulazione")
 
-tab_chart, tab_surcharge = st.tabs([
+tab_chart, tab_surcharge, tab_lookup, tab_simulator = st.tabs([
     "Andamento Storico Prezzi", 
-    "Trend Fuel Surcharge (%)"
+    "Trend Fuel Surcharge (%)",
+    "Consultazione Libera Prezzi",
+    "Simulatore Libero (What-If)"
 ])
 
 with tab_chart:
@@ -605,6 +610,185 @@ with tab_surcharge:
             font=dict(family="Titillium Web, sans-serif")
         )
         st.plotly_chart(fig_sur, use_container_width=True, config={"displayModeBar": False})
+    else:
+        st.info(f"Il Periodo Target selezionato ({target_label}) coincide con i dati più recenti disponibili. Seleziona un Periodo Base antecedente (es. Anno 2025) per osservare l'evoluzione del Fuel Surcharge nel tempo.")
+
+with tab_lookup:
+    st.markdown("###### Consultazione Rapida Rilevazioni Ufficiali MASE (Gasolio Auto)")
+    
+    # Calcolo date predefinite intelligenti (ancorate alla più recente domenica MASE)
+    if weekly_list:
+        latest_meta_w = get_week_meta(weekly_list[-1]["data"])
+        default_rng_end = latest_meta_w["obs_end"] # Ultima domenica rilevata (es. 23/08/2026)
+        default_rng_start = default_rng_end.replace(day=1) # 1° giorno di quel mese (es. 01/08/2026)
+    else:
+        default_rng_end = date.today()
+        default_rng_start = default_rng_end.replace(day=1)
+
+    lk_col1, lk_col2 = st.columns([1.5, 2.5])
+    with lk_col1:
+        lookup_mode = st.selectbox(
+            "Criterio di Ricerca:",
+            options=["Intervallo Date (da / a)", "Anno solare", "Singolo Mese", "Settimana Specifica", "Data Esatta (Giorno)"],
+            index=0,
+            key="lk_mode"
+        )
+        
+    p_pompa_res, p_imp_res, p_net_res, p_acc_res, p_iva_res = 0.0, 0.0, 0.0, 0.0, 0.0
+    info_badge_text = ""
+    
+    with lk_col2:
+        if lookup_mode == "Intervallo Date (da / a)":
+            sub_d1, sub_d2 = st.columns(2)
+            with sub_d1:
+                rng_start = st.date_input("Data Inizio:", value=default_rng_start, key="lk_rng_start")
+            with sub_d2:
+                rng_end = st.date_input("Data Fine:", value=default_rng_end, key="lk_rng_end")
+                
+            matched_lk_rows = []
+            for item in weekly_list:
+                meta = get_week_meta(item["data"])
+                if meta["obs_end"] >= rng_start and meta["obs_start"] <= rng_end:
+                    matched_lk_rows.append(item)
+            df_rng_filt = pd.DataFrame(matched_lk_rows)
+            
+            if len(df_rng_filt) > 0:
+                p_pompa_res = float(df_rng_filt["prezzo_pompa"].mean())
+                p_imp_res = float(df_rng_filt["imponibile"].mean())
+                p_net_res = float(df_rng_filt["netto"].mean())
+                p_acc_res = float(df_rng_filt["accisa"].mean())
+                p_iva_res = float(df_rng_filt["iva"].mean())
+                min_p = df_rng_filt["prezzo_pompa"].min()
+                max_p = df_rng_filt["prezzo_pompa"].max()
+                info_badge_text = f"Media calcolata su {len(df_rng_filt)} rilevazioni settimanali • Min: {fmt_it(min_p, 3)} €/L - Max: {fmt_it(max_p, 3)} €/L"
+            else:
+                st.error("Nessun dato trovato per l'intervallo selezionato.")
+
+        elif lookup_mode == "Anno solare":
+            avail_y = sorted(list(annual_dict.keys()), reverse=True)
+            sel_y = st.selectbox("Seleziona Anno Solare:", avail_y, index=0, key="lk_year")
+            res_obj = annual_dict.get(sel_y, {})
+            p_pompa_res = res_obj.get("prezzo_pompa", 0.0)
+            p_imp_res = res_obj.get("imponibile", 0.0)
+            p_net_res = res_obj.get("netto", 0.0)
+            p_acc_res = res_obj.get("accisa", 0.0)
+            p_iva_res = res_obj.get("iva", 0.0)
+            info_badge_text = f"Dato aggregato annuale ufficiale MASE per l'anno {sel_y}"
+
+        elif lookup_mode == "Singolo Mese":
+            df_m_lk = pd.DataFrame(monthly_list)
+            df_m_lk["label"] = df_m_lk["nome_mese"] + " " + df_m_lk["anno"].astype(str)
+            m_opts = df_m_lk["label"].tolist()[::-1]
+            sel_m = st.selectbox("Seleziona Mese:", m_opts, index=0, key="lk_month")
+            row_matched = df_m_lk[df_m_lk["label"] == sel_m].iloc[0]
+            p_pompa_res = row_matched["prezzo_pompa"]
+            p_imp_res = row_matched["imponibile"]
+            p_net_res = row_matched["netto"]
+            p_acc_res = row_matched["accisa"]
+            p_iva_res = row_matched["iva"]
+            info_badge_text = f"Dato consolidato mensile ufficiale MASE per {sel_m}"
+
+        elif lookup_mode == "Settimana Specifica":
+            w_opts = []
+            for item in reversed(weekly_list):
+                w_opts.append((get_week_meta(item["data"])["label"], item))
+            sel_w_tuple = st.selectbox("Seleziona Settimana:", w_opts, format_func=lambda x: x[0], key="lk_week")
+            item_row = sel_w_tuple[1]
+            p_pompa_res = item_row["prezzo_pompa"]
+            p_imp_res = item_row["imponibile"]
+            p_net_res = item_row["netto"]
+            p_acc_res = item_row["accisa"]
+            p_iva_res = item_row["iva"]
+            info_badge_text = f"Rilevazione ufficiale del {datetime.strptime(item_row['data'], '%Y-%m-%d').strftime('%d/%m/%Y')}"
+
+        else: # Data Esatta (Giorno)
+            def_date = default_rng_end
+            sel_exact_day = st.date_input("Seleziona Data del Trasporto / Documento:", value=def_date, key="lk_day")
+            
+            matched_item = None
+            matched_meta = None
+            for item in reversed(weekly_list):
+                meta = get_week_meta(item["data"])
+                dt_rel = datetime.strptime(item["data"], "%Y-%m-%d").date()
+                if meta["obs_start"] <= sel_exact_day <= meta["obs_end"] or sel_exact_day == dt_rel:
+                    matched_item = item
+                    matched_meta = meta
+                    break
+            if not matched_item:
+                matched_item = weekly_list[-1]
+                matched_meta = get_week_meta(weekly_list[-1]["data"])
+                
+            p_pompa_res = matched_item["prezzo_pompa"]
+            p_imp_res = matched_item["imponibile"]
+            p_net_res = matched_item["netto"]
+            p_acc_res = matched_item["accisa"]
+            p_iva_res = matched_item["iva"]
+            info_badge_text = f"Giorno richiesto: {sel_exact_day.strftime('%d/%m/%Y')} • Rilevazione MASE in vigore: {matched_meta['label']}"
+
+    # Visualizzazione Card Risultati Quick Lookup
+    st.markdown(f"<div style='margin-top: 12px; margin-bottom: 8px; font-size: 0.82rem; color: #64748b;'><b>Dettaglio:</b> {info_badge_text}</div>", unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Prezzo alla Pompa", f"{fmt_it(p_pompa_res, 3)} €/L")
+    c2.metric("Imponibile (senza IVA)", f"{fmt_it(p_imp_res, 3)} €/L")
+    c3.metric("Netto Industriale", f"{fmt_it(p_net_res, 3)} €/L")
+    c4.metric("Accisa di Legge", f"{fmt_it(p_acc_res, 4)} €/L", f"IVA: {fmt_it(p_iva_res, 3)} €/L")
+
+with tab_simulator:
+    st.markdown("###### Simulatore di Fuel Surcharge su Prezzo Ipotetico / Manuale (What-If)")
+    
+    sim_col1, sim_col2, sim_col3 = st.columns(3)
+    with sim_col1:
+        sim_p_base = st.number_input(
+            "Prezzo Base di Contratto (€/L):",
+            min_value=0.500,
+            max_value=3.500,
+            value=float(target_price) if target_price > 0 else 1.650,
+            step=0.005,
+            format="%.3f",
+            key="sim_base"
+        )
+    with sim_col2:
+        sim_p_eval = st.number_input(
+            "Prezzo Gasolio Ipotetico / Stimato (€/L):",
+            min_value=0.500,
+            max_value=3.500,
+            value=float(current_price) if current_price > 0 else 1.800,
+            step=0.005,
+            format="%.3f",
+            key="sim_eval"
+        )
+    with sim_col3:
+        sim_weight = st.selectbox(
+            "Incidenza Gasolio (%):",
+            options=list(range(1, 101)),
+            index=fuel_weight_pct - 1,
+            format_func=lambda x: f"{x}%",
+            key="sim_weight_sel"
+        )
+        
+    sim_delta = sim_p_eval - sim_p_base
+    sim_delta_pct = (sim_delta / sim_p_base) * 100 if sim_p_base > 0 else 0.0
+    sim_surcharge_pct = sim_delta_pct * (sim_weight / 100.0)
+    
+    # Scaglione corrispondente
+    sim_step_center = round(sim_surcharge_pct * 2) / 2
+    sim_p_min_bracket = sim_p_base * (1 + ((sim_step_center - 0.25) / sim_weight))
+    sim_p_max_bracket = sim_p_base * (1 + ((sim_step_center + 0.25) / sim_weight))
+    
+    sim_class = "hero-positive" if sim_surcharge_pct > 0.0001 else ("hero-negative" if sim_surcharge_pct < -0.0001 else "hero-neutral")
+    
+    st.markdown(f"""
+    <div class="hero-card" style="margin-top: 14px;">
+        <div class="hero-title">Fuel Surcharge Simulato (Scenario Manuale)</div>
+        <div class="hero-value {sim_class}">{fmt_it(sim_surcharge_pct, 2, sign=True)} %</div>
+        <div>
+            <span class="metric-pill"><b>Prezzo Ipotetico:</b> {fmt_it(sim_p_eval, 3)} €/L</span>
+            <span class="metric-pill"><b>Prezzo Base:</b> {fmt_it(sim_p_base, 3)} €/L</span>
+            <span class="metric-pill"><b>Variazione Stimata:</b> {fmt_it(sim_delta_pct, 2, sign=True)}%</span>
+            <span class="metric-pill"><b>Fascia Matrice:</b> da {fmt_it(sim_p_min_bracket, 3)} € a {fmt_it(sim_p_max_bracket, 3)} € (scaglione {fmt_it(sim_step_center, 2, sign=True)}%)</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 # --- 5. NOTA METODOLOGICA & GUIDA ALL'UTILIZZO ---
 st.markdown("---")
