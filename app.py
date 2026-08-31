@@ -52,8 +52,15 @@ st.markdown("""
         text-transform: uppercase;
         letter-spacing: 0.8px;
         margin-bottom: 1.2rem;
-        color: var(--text-color);
+        color: var(--text-color) !important;
     }
+
+    /* GRASSETTO SUI MENU A TENDINA */
+    div[data-baseweb="select"] {
+        font-weight: 600 !important;
+    }
+
+    /* HERO CARD ADATTIVA */
     .hero-card {
         background-color: var(--secondary-background-color);
         border: 1px solid rgba(128, 128, 128, 0.25);
@@ -102,9 +109,6 @@ st.markdown("""
         border-radius: 4px;
         font-weight: 700;
         display: inline-block;
-    }
-    div[data-baseweb="select"] {
-        font-weight: 600 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -189,177 +193,177 @@ with col_h2:
     </div>
     """, unsafe_allow_html=True)
 
-# --- 1. FILTRI GLOBALI (GRIGLIA 2x2) ---
-st.markdown("##### Parametri generali da impostare")
+# --- 1 & 2. PANNELLO DI CONTROLLO CONFIGURAZIONE (CARD UNIFICATA) ---
+with st.container(border=True):
+    st.markdown("##### Parametri generali da impostare")
 
-r1_col1, r1_col2 = st.columns(2)
-with r1_col1:
-    selected_price_type = st.selectbox(
-        "Prezzo Ministeriale:",
-        options=list(price_type_options.keys()),
-        format_func=lambda x: price_type_options[x],
-        key="price_type",
-        on_change=sync_url
-    )
-    active_key = price_keys[selected_price_type]
-
-with r1_col2:
-    fuel_weight_pct = st.selectbox(
-        "Incidenza costo gasolio:",
-        options=list(range(1, 101)),
-        format_func=lambda x: f"{x}%",
-        key="weight",
-        on_change=sync_url
-    )
-
-r2_col1, r2_col2 = st.columns(2)
-with r2_col1:
-    target_mode = st.selectbox(
-        "Modalità del periodo base (periodo target):",
-        options=["Anno solare", "Singolo Mese", "Range personalizzato (da / a)"],
-        key="target_mode"
-    )
-
-target_price = 0.0
-target_price_pompa = 0.0
-target_price_imponibile = 0.0
-target_price_netto = 0.0
-target_label = ""
-target_end_date = date(2025, 12, 31)
-
-with r2_col2:
-    if target_mode == "Anno solare":
-        available_years = sorted(list(annual_dict.keys()), reverse=True)
-        default_year_idx = available_years.index("2025") if "2025" in available_years else 0
-        sel_year = st.selectbox("Anno solare di riferimento:", available_years, index=default_year_idx, key="sel_year")
-        target_data = annual_dict.get(sel_year, {})
-        target_price = target_data.get(active_key, 0.0)
-        target_price_pompa = target_data.get("prezzo_pompa", 0.0)
-        target_price_imponibile = target_data.get("imponibile", 0.0)
-        target_price_netto = target_data.get("netto", 0.0)
-        target_label = f"Media Anno {sel_year}"
-        target_end_date = date(int(sel_year), 12, 31)
-
-    elif target_mode == "Singolo Mese":
-        df_m = pd.DataFrame(monthly_list)
-        df_m["label"] = df_m["nome_mese"] + " " + df_m["anno"].astype(str)
-        month_options = df_m["label"].tolist()[::-1]
-        sel_month = st.selectbox("Mese di riferimento:", month_options, index=0, key="sel_month")
-        matched_row = df_m[df_m["label"] == sel_month].iloc[0]
-        target_price = matched_row[active_key]
-        target_price_pompa = matched_row["prezzo_pompa"]
-        target_price_imponibile = matched_row["imponibile"]
-        target_price_netto = matched_row["netto"]
-        target_label = f"Media {sel_month}"
-        y_val, m_val = int(matched_row["anno"]), int(matched_row["mese"])
-        last_day = calendar.monthrange(y_val, m_val)[1]
-        target_end_date = date(y_val, m_val, last_day)
-
-    else: # Range Personalizzato
-        sub_col1, sub_col2 = st.columns(2)
-        with sub_col1:
-            d_start = st.date_input("Data Inizio:", value=date(2025, 1, 1), key="d_start")
-        with sub_col2:
-            d_end = st.date_input("Data Fine:", value=date(2025, 12, 31), key="d_end")
-        
-        df_w = pd.DataFrame(weekly_list)
-        df_w["data_dt"] = pd.to_datetime(df_w["data"]).dt.date
-        mask = (df_w["data_dt"] >= d_start) & (df_w["data_dt"] <= d_end)
-        df_filtered = df_w.loc[mask]
-        
-        if len(df_filtered) > 0:
-            target_price = float(df_filtered[active_key].mean())
-            target_price_pompa = float(df_filtered["prezzo_pompa"].mean())
-            target_price_imponibile = float(df_filtered["imponibile"].mean())
-            target_price_netto = float(df_filtered["netto"].mean())
-            target_label = f"Media {d_start.strftime('%d/%m/%y')} - {d_end.strftime('%d/%m/%y')}"
-            target_end_date = d_end
-        else:
-            st.error("Nessuna rilevazione trovata per il range selezionato.")
-            target_price = 1.0
-            target_price_pompa = 1.0
-            target_price_imponibile = 1.0
-            target_price_netto = 1.0
-            target_end_date = d_end
-
-# --- 2. SELETTORE PERIODO DA VALUTARE ---
-st.markdown("---")
-
-p_col1, p_col2 = st.columns(2)
-
-with p_col1:
-    granularity = st.radio(
-        "Granularità Periodo da Valutare:",
-        options=["Mensile", "Settimanale"],
-        horizontal=True,
-        key="granularity",
-        on_change=sync_url
-    )
-
-# Liste Dinamiche Storiche
-mesi_italiani = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", 
-                 "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
-
-if granularity == "Mensile":
-    month_dropdown_options = []
-    for idx, item in enumerate(reversed(monthly_list)):
-        m_name = item.get("nome_mese")
-        y_num = item.get("anno")
-        if idx == 0:
-            label = f"Ultimo Mese Disponibile ({m_name} {y_num})"
-        else:
-            label = f"{m_name} {y_num}"
-        month_dropdown_options.append((label, item))
-    
-    with p_col2:
-        selected_month_tuple = st.selectbox(
-            "**Mese di Rilevazione Gasolio:**",
-            options=month_dropdown_options,
-            format_func=lambda x: x[0],
-            key="sel_eval_month"
+    r1_col1, r1_col2 = st.columns(2)
+    with r1_col1:
+        selected_price_type = st.selectbox(
+            "Prezzo Ministeriale:",
+            options=list(price_type_options.keys()),
+            format_func=lambda x: price_type_options[x],
+            key="price_type",
+            on_change=sync_url
         )
-    
-    selected_record = selected_month_tuple[1]
-    current_price = selected_record.get(active_key, 0.0)
-    eval_month_num = int(selected_record.get("mese"))
-    eval_year = int(selected_record.get("anno"))
-    eval_month_name = selected_record.get("nome_mese")
-    
-    if eval_month_num == 12:
-        next_month_name = mesi_italiani[0]
-        next_year = eval_year + 1
-    else:
-        next_month_name = mesi_italiani[eval_month_num]
-        next_year = eval_year
-        
-    current_eval_label = f"{eval_month_name} {eval_year}"
-    commercial_app_text = f"Percentuale rilevata su {eval_month_name} {eval_year}, convenzionalmente valida per la fatturazione di {next_month_name} {next_year} (salvo diversi accordi tra le parti)."
+        active_key = price_keys[selected_price_type]
 
-else: # Settimanale
-    weekly_meta_list = [get_week_meta(item["data"]) for item in weekly_list]
-    week_dropdown_options = []
-    
-    for idx, meta in enumerate(reversed(weekly_meta_list)):
-        item_data = weekly_list[-(idx + 1)]
-        if idx == 0:
-            label = f"Ultima Settimana Disponibile - {meta['label']}"
-        else:
-            label = meta["label"]
-        week_dropdown_options.append((label, item_data, meta))
-        
-    with p_col2:
-        selected_week_tuple = st.selectbox(
-            "**Settimana di Rilevazione Gasolio:**",
-            options=week_dropdown_options,
-            format_func=lambda x: x[0],
-            key="sel_eval_week"
+    with r1_col2:
+        fuel_weight_pct = st.selectbox(
+            "Incidenza costo gasolio:",
+            options=list(range(1, 101)),
+            format_func=lambda x: f"{x}%",
+            key="weight",
+            on_change=sync_url
         )
+
+    r2_col1, r2_col2 = st.columns(2)
+    with r2_col1:
+        target_mode = st.selectbox(
+            "Modalità del periodo base (periodo target):",
+            options=["Anno solare", "Singolo Mese", "Range personalizzato (da / a)"],
+            key="target_mode"
+        )
+
+    target_price = 0.0
+    target_price_pompa = 0.0
+    target_price_imponibile = 0.0
+    target_price_netto = 0.0
+    target_label = ""
+    target_end_date = date(2025, 12, 31)
+
+    with r2_col2:
+        if target_mode == "Anno solare":
+            available_years = sorted(list(annual_dict.keys()), reverse=True)
+            default_year_idx = available_years.index("2025") if "2025" in available_years else 0
+            sel_year = st.selectbox("Anno solare di riferimento:", available_years, index=default_year_idx, key="sel_year")
+            target_data = annual_dict.get(sel_year, {})
+            target_price = target_data.get(active_key, 0.0)
+            target_price_pompa = target_data.get("prezzo_pompa", 0.0)
+            target_price_imponibile = target_data.get("imponibile", 0.0)
+            target_price_netto = target_data.get("netto", 0.0)
+            target_label = f"Media Anno {sel_year}"
+            target_end_date = date(int(sel_year), 12, 31)
+
+        elif target_mode == "Singolo Mese":
+            df_m = pd.DataFrame(monthly_list)
+            df_m["label"] = df_m["nome_mese"] + " " + df_m["anno"].astype(str)
+            month_options = df_m["label"].tolist()[::-1]
+            sel_month = st.selectbox("Mese di riferimento:", month_options, index=0, key="sel_month")
+            matched_row = df_m[df_m["label"] == sel_month].iloc[0]
+            target_price = matched_row[active_key]
+            target_price_pompa = matched_row["prezzo_pompa"]
+            target_price_imponibile = matched_row["imponibile"]
+            target_price_netto = matched_row["netto"]
+            target_label = f"Media {sel_month}"
+            y_val, m_val = int(matched_row["anno"]), int(matched_row["mese"])
+            last_day = calendar.monthrange(y_val, m_val)[1]
+            target_end_date = date(y_val, m_val, last_day)
+
+        else: # Range Personalizzato
+            sub_col1, sub_col2 = st.columns(2)
+            with sub_col1:
+                d_start = st.date_input("Data Inizio:", value=date(2025, 1, 1), key="d_start")
+            with sub_col2:
+                d_end = st.date_input("Data Fine:", value=date(2025, 12, 31), key="d_end")
+            
+            df_w = pd.DataFrame(weekly_list)
+            df_w["data_dt"] = pd.to_datetime(df_w["data"]).dt.date
+            mask = (df_w["data_dt"] >= d_start) & (df_w["data_dt"] <= d_end)
+            df_filtered = df_w.loc[mask]
+            
+            if len(df_filtered) > 0:
+                target_price = float(df_filtered[active_key].mean())
+                target_price_pompa = float(df_filtered["prezzo_pompa"].mean())
+                target_price_imponibile = float(df_filtered["imponibile"].mean())
+                target_price_netto = float(df_filtered["netto"].mean())
+                target_label = f"Media {d_start.strftime('%d/%m/%y')} - {d_end.strftime('%d/%m/%y')}"
+                target_end_date = d_end
+            else:
+                st.error("Nessuna rilevazione trovata per il range selezionato.")
+                target_price = 1.0
+                target_price_pompa = 1.0
+                target_price_imponibile = 1.0
+                target_price_netto = 1.0
+                target_end_date = d_end
+
+    st.markdown("<hr style='margin: 14px 0; border: none; border-top: 1px solid rgba(128,128,128,0.18);'>", unsafe_allow_html=True)
+
+    p_col1, p_col2 = st.columns(2)
+
+    with p_col1:
+        granularity = st.radio(
+            "Granularità Periodo da Valutare:",
+            options=["Mensile", "Settimanale"],
+            horizontal=True,
+            key="granularity",
+            on_change=sync_url
+        )
+
+    # Liste Dinamiche Storiche
+    mesi_italiani = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", 
+                     "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
+
+    if granularity == "Mensile":
+        month_dropdown_options = []
+        for idx, item in enumerate(reversed(monthly_list)):
+            m_name = item.get("nome_mese")
+            y_num = item.get("anno")
+            if idx == 0:
+                label = f"Ultimo Mese Disponibile ({m_name} {y_num})"
+            else:
+                label = f"{m_name} {y_num}"
+            month_dropdown_options.append((label, item))
         
-    selected_record = selected_week_tuple[1]
-    selected_meta = selected_week_tuple[2]
-    current_price = selected_record.get(active_key, 0.0)
-    current_eval_label = selected_meta["label"]
-    commercial_app_text = "Percentuale rilevata sulla settimana selezionata, convenzionalmente valida per la fatturazione della settimana successiva (salvo diversi accordi tra le parti)."
+        with p_col2:
+            selected_month_tuple = st.selectbox(
+                "**Mese di Rilevazione Gasolio:**",
+                options=month_dropdown_options,
+                format_func=lambda x: x[0],
+                key="sel_eval_month"
+            )
+        
+        selected_record = selected_month_tuple[1]
+        current_price = selected_record.get(active_key, 0.0)
+        eval_month_num = int(selected_record.get("mese"))
+        eval_year = int(selected_record.get("anno"))
+        eval_month_name = selected_record.get("nome_mese")
+        
+        if eval_month_num == 12:
+            next_month_name = mesi_italiani[0]
+            next_year = eval_year + 1
+        else:
+            next_month_name = mesi_italiani[eval_month_num]
+            next_year = eval_year
+            
+        current_eval_label = f"{eval_month_name} {eval_year}"
+        commercial_app_text = f"Percentuale rilevata su {eval_month_name} {eval_year}, convenzionalmente valida per la fatturazione di {next_month_name} {next_year} (salvo diversi accordi tra le parti)."
+
+    else: # Settimanale
+        weekly_meta_list = [get_week_meta(item["data"]) for item in weekly_list]
+        week_dropdown_options = []
+        
+        for idx, meta in enumerate(reversed(weekly_meta_list)):
+            item_data = weekly_list[-(idx + 1)]
+            if idx == 0:
+                label = f"Ultima Settimana Disponibile - {meta['label']}"
+            else:
+                label = meta["label"]
+            week_dropdown_options.append((label, item_data, meta))
+            
+        with p_col2:
+            selected_week_tuple = st.selectbox(
+                "**Settimana di Rilevazione Gasolio:**",
+                options=week_dropdown_options,
+                format_func=lambda x: x[0],
+                key="sel_eval_week"
+            )
+            
+        selected_record = selected_week_tuple[1]
+        selected_meta = selected_week_tuple[2]
+        current_price = selected_record.get(active_key, 0.0)
+        current_eval_label = selected_meta["label"]
+        commercial_app_text = "Percentuale rilevata sulla settimana selezionata, convenzionalmente valida per la fatturazione della settimana successiva (salvo diversi accordi tra le parti)."
 
 # CALCOLO SURCHARGE
 delta_price = current_price - target_price
