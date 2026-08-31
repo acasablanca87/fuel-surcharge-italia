@@ -39,16 +39,18 @@ def get_week_meta(date_str: str) -> dict:
 # --- STILE CSS ISTITUZIONALE CON FONT MASE (TITILLIUM WEB) ---
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Titillium+Web:ital,wght@0,300;0,400;0,600;0,700;0,900;1,400&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@700;800;900&family=Titillium+Web:ital,wght@0,300;0,400;0,600;0,700;0,900;1,400&display=swap');
 
     html, body, [class*="css"], .stMarkdown, .stSelectbox, .stRadio, .stNumberInput, .stDateInput {
         font-family: 'Titillium Web', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
     }
 
     .main-header {
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
         font-size: 2.1rem;
-        font-weight: 700;
-        letter-spacing: -0.5px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
         margin-bottom: 1.2rem;
         color: var(--text-color);
     }
@@ -101,6 +103,9 @@ st.markdown("""
         font-weight: 700;
         display: inline-block;
     }
+    div[data-baseweb="select"] {
+        font-weight: 600 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -120,82 +125,112 @@ monthly_list = data.get("monthly_history", [])
 annual_dict = data.get("annual_averages", {})
 metadata = data.get("metadata", {})
 
-# --- PARAMETRI URL ---
-query_params = st.query_params
-qp_price_type = query_params.get("price_type", "pompa")
-if qp_price_type not in ["pompa", "netto"]:
-    qp_price_type = "pompa"
-qp_weight = int(query_params.get("weight", 30))
-qp_granularity = query_params.get("granularity", "mensile")
+# --- GESTIONE STATO INIZIALE & URL (ANTI-RACE CONDITION) ---
+price_type_options = {
+    "pompa": "Prezzo Globale (alla pompa)",
+    "imponibile": "Prezzo Imponibile (SENZA IVA ma con Accise)",
+    "netto": "Prezzo Netto Industriale (SENZA IVA e SENZA ACCISE)"
+}
+price_keys = {
+    "pompa": "prezzo_pompa",
+    "imponibile": "imponibile",
+    "netto": "netto"
+}
+
+# Inizializzazione Session State dai parametri URL solo la prima volta
+if "price_type" not in st.session_state:
+    qp_pt = st.query_params.get("price_type", "pompa")
+    st.session_state["price_type"] = qp_pt if qp_pt in price_type_options else "pompa"
+
+if "weight" not in st.session_state:
+    try:
+        st.session_state["weight"] = int(st.query_params.get("weight", 30))
+    except (ValueError, TypeError):
+        st.session_state["weight"] = 30
+
+if "granularity" not in st.session_state:
+    qp_gr = st.query_params.get("granularity", "mensile")
+    st.session_state["granularity"] = "Settimanale" if str(qp_gr).lower() == "settimanale" else "Mensile"
+
+# Callback per sincronizzare l'URL solo quando l'utente agisce sui controlli
+def sync_url():
+    st.query_params["price_type"] = st.session_state.get("price_type", "pompa")
+    st.query_params["weight"] = str(st.session_state.get("weight", 30))
+    st.query_params["granularity"] = str(st.session_state.get("granularity", "Mensile")).lower()
 
 # --- HEADER ISTITUZIONALE ---
-col_h1, col_h2 = st.columns([3, 1])
+col_h1, col_h2 = st.columns([2.8, 1.2])
 with col_h1:
-    st.markdown('<div class="main-header">Fuel Surcharge Italia</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">FUEL SURCHARGE ITALIA</div>', unsafe_allow_html=True)
 
 with col_h2:
-    last_up = metadata.get("last_updated", "N/D")[:10]
+    # Estrazione della data ufficiale dell'ultima rilevazione MASE in formato italiano (GG/MM/AAAA)
+    if weekly_list:
+        raw_latest_date = weekly_list[-1]["data"]
+        try:
+            last_mase_date = datetime.strptime(raw_latest_date, "%Y-%m-%d").strftime("%d/%m/%Y")
+        except (ValueError, TypeError):
+            last_mase_date = raw_latest_date
+    else:
+        last_mase_date = "N/D"
+
     st.markdown(f"""
-    <div style="text-align: right; padding-top: 5px;">
-        <span class="source-badge">Dati Ufficiali MASE</span><br>
-        <span style="font-size: 0.75rem; color: #64748b;">Rilevazione al: {last_up}</span>
+    <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding-top: 2px;">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/0/00/Emblem_of_Italy.svg" alt="Repubblica Italiana" width="34" height="34" style="opacity: 0.95;" />
+        <div style="text-align: right;">
+            <span class="source-badge">Dati Ufficiali MASE</span><br>
+            <span style="font-size: 0.75rem; color: #64748b;">Rilevazione del: {last_mase_date}</span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
 # --- 1. FILTRI GLOBALI (GRIGLIA 2x2) ---
-st.markdown("##### Parametri Generali")
+st.markdown("##### Parametri generali da impostare")
 
-price_type_options = {
-    "pompa": "Prezzo alla Pompa (Globale con IVA)",
-    "netto": "Netto Industriale (Senza Tasse)"
-}
-price_keys = {
-    "pompa": "prezzo_pompa",
-    "netto": "netto"
-}
-
-# RIGA 1: Base Prezzo (2 Scelte) | Incidenza %
 r1_col1, r1_col2 = st.columns(2)
 with r1_col1:
     selected_price_type = st.selectbox(
-        "Base di Prezzo Ministeriale:",
+        "Prezzo Ministeriale:",
         options=list(price_type_options.keys()),
         format_func=lambda x: price_type_options[x],
-        index=list(price_type_options.keys()).index(qp_price_type)
+        key="price_type",
+        on_change=sync_url
     )
     active_key = price_keys[selected_price_type]
 
 with r1_col2:
-    fuel_weight_pct = st.number_input(
-        "Incidenza Costo Gasolio (%):",
-        min_value=1,
-        max_value=100,
-        value=qp_weight,
-        step=1
+    fuel_weight_pct = st.selectbox(
+        "Incidenza costo gasolio:",
+        options=list(range(1, 101)),
+        format_func=lambda x: f"{x}%",
+        key="weight",
+        on_change=sync_url
     )
 
-# RIGA 2: Modalità Target | Selettore Dinamico Target
 r2_col1, r2_col2 = st.columns(2)
 with r2_col1:
     target_mode = st.selectbox(
-        "Modalità Periodo Base (Target):",
-        options=["Anno Solare", "Singolo Mese", "Range Personalizzato (Da / A)"]
+        "Modalità del periodo base (periodo target):",
+        options=["Anno solare", "Singolo Mese", "Range personalizzato (da / a)"],
+        key="target_mode"
     )
 
 target_price = 0.0
 target_price_pompa = 0.0
+target_price_imponibile = 0.0
 target_price_netto = 0.0
 target_label = ""
 target_end_date = date(2025, 12, 31)
 
 with r2_col2:
-    if target_mode == "Anno Solare":
+    if target_mode == "Anno solare":
         available_years = sorted(list(annual_dict.keys()), reverse=True)
         default_year_idx = available_years.index("2025") if "2025" in available_years else 0
-        sel_year = st.selectbox("Anno Solare di Riferimento:", available_years, index=default_year_idx)
+        sel_year = st.selectbox("Anno solare di riferimento:", available_years, index=default_year_idx, key="sel_year")
         target_data = annual_dict.get(sel_year, {})
         target_price = target_data.get(active_key, 0.0)
         target_price_pompa = target_data.get("prezzo_pompa", 0.0)
+        target_price_imponibile = target_data.get("imponibile", 0.0)
         target_price_netto = target_data.get("netto", 0.0)
         target_label = f"Media Anno {sel_year}"
         target_end_date = date(int(sel_year), 12, 31)
@@ -204,10 +239,11 @@ with r2_col2:
         df_m = pd.DataFrame(monthly_list)
         df_m["label"] = df_m["nome_mese"] + " " + df_m["anno"].astype(str)
         month_options = df_m["label"].tolist()[::-1]
-        sel_month = st.selectbox("Mese di Riferimento:", month_options, index=0)
+        sel_month = st.selectbox("Mese di riferimento:", month_options, index=0, key="sel_month")
         matched_row = df_m[df_m["label"] == sel_month].iloc[0]
         target_price = matched_row[active_key]
         target_price_pompa = matched_row["prezzo_pompa"]
+        target_price_imponibile = matched_row["imponibile"]
         target_price_netto = matched_row["netto"]
         target_label = f"Media {sel_month}"
         y_val, m_val = int(matched_row["anno"]), int(matched_row["mese"])
@@ -217,9 +253,9 @@ with r2_col2:
     else: # Range Personalizzato
         sub_col1, sub_col2 = st.columns(2)
         with sub_col1:
-            d_start = st.date_input("Data Inizio:", value=date(2025, 1, 1))
+            d_start = st.date_input("Data Inizio:", value=date(2025, 1, 1), key="d_start")
         with sub_col2:
-            d_end = st.date_input("Data Fine:", value=date(2025, 12, 31))
+            d_end = st.date_input("Data Fine:", value=date(2025, 12, 31), key="d_end")
         
         df_w = pd.DataFrame(weekly_list)
         df_w["data_dt"] = pd.to_datetime(df_w["data"]).dt.date
@@ -229,6 +265,7 @@ with r2_col2:
         if len(df_filtered) > 0:
             target_price = float(df_filtered[active_key].mean())
             target_price_pompa = float(df_filtered["prezzo_pompa"].mean())
+            target_price_imponibile = float(df_filtered["imponibile"].mean())
             target_price_netto = float(df_filtered["netto"].mean())
             target_label = f"Media {d_start.strftime('%d/%m/%y')} - {d_end.strftime('%d/%m/%y')}"
             target_end_date = d_end
@@ -236,6 +273,7 @@ with r2_col2:
             st.error("Nessuna rilevazione trovata per il range selezionato.")
             target_price = 1.0
             target_price_pompa = 1.0
+            target_price_imponibile = 1.0
             target_price_netto = 1.0
             target_end_date = d_end
 
@@ -249,13 +287,9 @@ with p_col1:
         "Granularità Periodo da Valutare:",
         options=["Mensile", "Settimanale"],
         horizontal=True,
-        index=0 if qp_granularity == "mensile" else 1
+        key="granularity",
+        on_change=sync_url
     )
-
-# Sincronizzazione URL
-st.query_params["price_type"] = selected_price_type
-st.query_params["weight"] = str(fuel_weight_pct)
-st.query_params["granularity"] = granularity.lower()
 
 # Liste Dinamiche Storiche
 mesi_italiani = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", 
@@ -274,9 +308,10 @@ if granularity == "Mensile":
     
     with p_col2:
         selected_month_tuple = st.selectbox(
-            "Mese di Rilevazione Gasolio:",
+            "**Mese di Rilevazione Gasolio:**",
             options=month_dropdown_options,
-            format_func=lambda x: x[0]
+            format_func=lambda x: x[0],
+            key="sel_eval_month"
         )
     
     selected_record = selected_month_tuple[1]
@@ -293,7 +328,7 @@ if granularity == "Mensile":
         next_year = eval_year
         
     current_eval_label = f"{eval_month_name} {eval_year}"
-    commercial_app_text = f"Fatture di {next_month_name} {next_year} (con slittamento mese precedente) oppure a consuntivo di {eval_month_name} {eval_year}"
+    commercial_app_text = f"Percentuale rilevata su {eval_month_name} {eval_year}, convenzionalmente valida per la fatturazione di {next_month_name} {next_year} (salvo diversi accordi tra le parti)."
 
 else: # Settimanale
     weekly_meta_list = [get_week_meta(item["data"]) for item in weekly_list]
@@ -309,16 +344,17 @@ else: # Settimanale
         
     with p_col2:
         selected_week_tuple = st.selectbox(
-            "Settimana di Rilevazione Gasolio:",
+            "**Settimana di Rilevazione Gasolio:**",
             options=week_dropdown_options,
-            format_func=lambda x: x[0]
+            format_func=lambda x: x[0],
+            key="sel_eval_week"
         )
         
     selected_record = selected_week_tuple[1]
     selected_meta = selected_week_tuple[2]
     current_price = selected_record.get(active_key, 0.0)
     current_eval_label = selected_meta["label"]
-    commercial_app_text = "Fatturazione settimanale o contratti a tariffa dinamica successivi alla rilevazione"
+    commercial_app_text = "Percentuale rilevata sulla settimana selezionata, convenzionalmente valida per la fatturazione della settimana successiva (salvo diversi accordi tra le parti)."
 
 # CALCOLO SURCHARGE
 delta_price = current_price - target_price
@@ -345,14 +381,14 @@ st.markdown(f"""
         <span class="metric-pill"><b>Peso Applicato:</b> {fuel_weight_pct}%</span>
     </div>
     <div style="margin-top: 10px; font-size: 0.85rem; color: var(--text-color); opacity: 0.85;">
-        <b>Applicazione Operativa:</b> {commercial_app_text}
+        <b>NOTA:</b> {commercial_app_text}
     </div>
 </div>
 """, unsafe_allow_html=True)
 
 # --- 3. TABELLA SCAGLIONI PREVISIONALI (3 COLONNE) ---
-st.markdown("### Matrice a Scaglioni Previsionali (Passi da 0,5%)")
-st.caption("Forchette di oscillazione del prezzo gasolio per trasparenza contrattuale preventiva.")
+st.markdown("### Matrice a scaglioni (passi da 0,5%)")
+st.caption("Forchette del prezzo gasolio con relativo Fuel Surcharge applicabile.")
 
 central_step = round(surcharge_pct * 2) / 2
 steps = [round(central_step + i * 0.5, 2) for i in range(-5, 6)]
@@ -367,14 +403,27 @@ for s in steps:
     
     is_current = (s_min <= surcharge_pct < s_max)
     
+    if is_current:
+        stato_str = f"ATTUALE • {fmt_it(current_price, 3)} €/L ({current_eval_label})"
+    else:
+        stato_str = ""
+    
     table_rows.append({
-        "Stato": "ATTUALE" if is_current else "",
+        "Forchetta Prezzo Gasolio": f"da {fmt_it(p_min, 3)} € a {fmt_it(p_max, 3)} €",
         "Fuel Surcharge": f"{fmt_it(s, 2, sign=True)} %",
-        "Forchetta Prezzo Gasolio": f"Da {fmt_it(p_min, 3)} € a {fmt_it(p_max, 3)} €"
+        "Stato / Riferimento": stato_str
     })
 
 df_steps = pd.DataFrame(table_rows)
-st.dataframe(df_steps, use_container_width=True, hide_index=True)
+
+# Funzione di stile per evidenziare la riga ATTUALE
+def highlight_current_row(row):
+    if "ATTUALE" in str(row["Stato / Riferimento"]):
+        return ["background-color: rgba(220, 38, 38, 0.15); font-weight: 700; color: #dc2626;"] * len(row)
+    return [""] * len(row)
+
+styled_df = df_steps.style.apply(highlight_current_row, axis=1)
+st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
 # --- 4. GRAFICI & ANALISI STORICA (2 TAB) ---
 st.markdown("---")
@@ -386,9 +435,9 @@ tab_chart, tab_surcharge = st.tabs([
 ])
 
 with tab_chart:
+    st.markdown("###### Evoluzione Prezzo Gasolio Auto Italia (Rilevazioni Settimanali MASE)")
     df_w_all = pd.DataFrame(weekly_list)
     
-    # Calcolo data limite per il default a 3 anni
     latest_date_str = weekly_list[-1]["data"]
     latest_dt = datetime.strptime(latest_date_str, "%Y-%m-%d").date()
     start_3y_dt = latest_dt - timedelta(days=3 * 365)
@@ -396,22 +445,26 @@ with tab_chart:
     fig_prices = go.Figure()
     fig_prices.add_trace(go.Scatter(
         x=df_w_all["data"], y=df_w_all["prezzo_pompa"],
-        mode="lines", name="Alla Pompa (Totale)",
+        mode="lines", name="Prezzo alla Pompa",
         line=dict(color="#2563eb", width=2)
     ))
     fig_prices.add_trace(go.Scatter(
+        x=df_w_all["data"], y=df_w_all["imponibile"],
+        mode="lines", name="Imponibile (senza IVA)",
+        line=dict(color="#6366f1", width=1.5, dash="dot")
+    ))
+    fig_prices.add_trace(go.Scatter(
         x=df_w_all["data"], y=df_w_all["netto"],
-        mode="lines", name="Netto Industriale (Materia Prima)",
+        mode="lines", name="Netto Industriale",
         line=dict(color="#f59e0b", width=1.8)
     ))
     fig_prices.add_trace(go.Scatter(
         x=df_w_all["data"], y=df_w_all["accisa"],
-        mode="lines", name="Accisa Fissa di Legge",
+        mode="lines", name="Accisa Fissa",
         line=dict(color="#10b981", width=1.5)
     ))
     
     fig_prices.update_layout(
-        title="Evoluzione Prezzo Gasolio Auto Italia (Rilevazioni Settimanali MASE)",
         xaxis=dict(
             title="Data Rilevazione",
             range=[start_3y_dt.strftime("%Y-%m-%d"), latest_date_str],
@@ -424,7 +477,9 @@ with tab_chart:
                 ]),
                 bgcolor="rgba(128, 128, 128, 0.12)",
                 activecolor="#0284c7",
-                font=dict(family="Titillium Web, sans-serif", size=12)
+                font=dict(family="Titillium Web, sans-serif", size=12),
+                y=1.12,
+                x=0
             ),
             rangeslider=dict(
                 visible=True,
@@ -435,8 +490,14 @@ with tab_chart:
         ),
         yaxis_title="Euro al Litro (€/L)",
         hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.08, xanchor="right", x=1),
-        margin=dict(l=20, r=20, t=75, b=20),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.22,
+            xanchor="left",
+            x=0
+        ),
+        margin=dict(l=20, r=20, t=90, b=20),
         template="plotly_white",
         font=dict(family="Titillium Web, sans-serif")
     )
@@ -491,7 +552,6 @@ with tab_surcharge:
         fig_sur = go.Figure()
         fig_sur.add_hline(y=0, line_dash="dash", line_color="#94a3b8", annotation_text="Base Target (0,00%)")
         
-        # 1. Curva Base Pompa (Blu)
         fig_sur.add_trace(go.Scatter(
             x=df_sur["data_label"],
             y=df_sur["sur_pompa"],
@@ -502,7 +562,6 @@ with tab_surcharge:
             hovertemplate="<b>%{x}</b><br>Surcharge Base Pompa: %{y:.2f}%<extra></extra>"
         ))
         
-        # 2. Curva Base Netto Industriale (Arancio)
         fig_sur.add_trace(go.Scatter(
             x=df_sur["data_label"],
             y=df_sur["sur_netto"],
@@ -526,3 +585,50 @@ with tab_surcharge:
         st.plotly_chart(fig_sur, use_container_width=True)
     else:
         st.info(f"Il Periodo Target selezionato ({target_label}) coincide con i dati più recenti disponibili. Seleziona un Periodo Base antecedente (es. Anno 2025) per osservare l'evoluzione del Fuel Surcharge nel tempo.")
+
+# --- 5. NOTA METODOLOGICA & GUIDA ALL'UTILIZZO ---
+st.markdown("---")
+st.markdown("##### Nota Metodologica e Guida all'Utilizzo")
+
+m_col1, m_col2 = st.columns(2)
+
+with m_col1:
+    st.markdown("""
+    <div style="background-color: var(--secondary-background-color); border: 1px solid rgba(128, 128, 128, 0.2); border-radius: 8px; padding: 18px 20px; font-size: 0.82rem; line-height: 1.55; color: var(--text-color); height: 100%;">
+        <div style="font-weight: 700; font-size: 0.88rem; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; color: var(--text-color);">
+            Metodologia e Formule di Calcolo
+        </div>
+        <ul style="margin: 0; padding-left: 18px;">
+            <li style="margin-bottom: 8px;"><b>Variazione Prezzo Gasolio (Δ%):</b> Calcola lo scostamento percentuale tra il prezzo del carburante del periodo di valutazione (<i>P<sub>attuale</sub></i>) e il prezzo del periodo base contrattuale (<i>P<sub>target</sub></i>):<br>
+            <code>Δ% = ((P<sub>attuale</sub> - P<sub>target</sub>) / P<sub>target</sub>) × 100</code></li>
+            <li style="margin-bottom: 8px;"><b>Quota di Incidenza Costo (Peso %):</b> Il Fuel Surcharge finale è ottenuto moltiplicando la variazione <code>Δ%</code> per l'incidenza del gasolio sul costo chilometrico totale (default 30%, in linea con le tabelle indicative dei costi di esercizio MIT per veicoli pesanti):<br>
+            <code>Fuel Surcharge % = Δ% × Incidenza %</code></li>
+            <li style="margin-bottom: 8px;"><b>Matrice a Scaglioni (±0,5%):</b> Ogni scaglione tariffario copre una forchetta centrata di ±0,25%. Le soglie di prezzo minimo e massimo sono calcolate tramite formula analitica inversa a partire dal Prezzo Base.</li>
+            <li><b>Confronto Basi di Prezzo:</b> Le variazioni percentuali su <i>Prezzo Globale alla Pompa</i> e <i>Imponibile (senza IVA)</i> sono matematicamente identiche (l'aliquota IVA al 22% è costante e si elide). Il calcolo su <i>Netto Industriale</i> evidenzia invece la variazione pura della materia prima petrolifera, escludendo l'effetto ammortizzatore dell'accisa fissa.</li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
+
+with m_col2:
+    st.markdown("""
+    <div style="background-color: var(--secondary-background-color); border: 1px solid rgba(128, 128, 128, 0.2); border-radius: 8px; padding: 18px 20px; font-size: 0.82rem; line-height: 1.55; color: var(--text-color); height: 100%;">
+        <div style="font-weight: 700; font-size: 0.88rem; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; color: var(--text-color);">
+            Parametri di Default, Interattività e Fonti
+        </div>
+        <ul style="margin: 0; padding-left: 18px;">
+            <li style="margin-bottom: 8px;"><b>Configurazione di Default all'Avvio:</b> Il sistema si apre pre-configurato su <i>Prezzo Globale alla Pompa</i>, <i>Incidenza 30%</i>, <i>Periodo Base Anno Solare 2025</i> e <i>Rilevazione più recente disponibile</i>.</li>
+            <li style="margin-bottom: 8px;"><b>Personalizzazione Dinamica:</b> L'utente può modificare liberamente tutti i parametri: cambiare la base di prezzo, impostare qualsiasi percentuale di incidenza, selezionare periodi target su base annuale, mensile o intervalli di date personalizzati, e consultare qualsiasi mese o settimana storica.</li>
+            <li style="margin-bottom: 8px;"><b>Link Condivisibili (URL Query):</b> Qualsiasi combinazione di parametri impostata dall'utente viene sincronizzata nell'indirizzo URL del browser, consentendo di copiare e inviare link già pre-configurati per contratti specifici.</li>
+            <li><b>Automazione e Fonti Ufficiali:</b> I dati sono acquisiti direttamente tramite API Open Data dal <i>Ministero dell'Ambiente e della Sicurezza Energetica (DGSAIE)</i>. Le rilevazioni settimanali si aggiornano ogni martedì (dopo le ore 12:00) e i dati mensili vengono consolidati nei primi giorni del mese successivo.</li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
+
+# --- FOOTER ISTITUZIONALE ---
+st.markdown("---")
+st.markdown("""
+<div style="text-align: center; margin-top: 15px; margin-bottom: 25px; font-size: 0.82rem; color: #64748b;">
+    Fonte Dati Ufficiali: <a href="https://sisen.mase.gov.it/dgsaie/prezzi-settimanali-carburanti" target="_blank" style="color: #0284c7; text-decoration: none; font-weight: 600;">Ministero dell'Ambiente e della Sicurezza Energetica (DGSAIE) ↗</a><br>
+    <span style="font-size: 0.75rem; opacity: 0.85;">Fuel Surcharge Italia • Indice di monitoraggio e simulazione adeguamento costo gasolio</span>
+</div>
+""", unsafe_allow_html=True)
