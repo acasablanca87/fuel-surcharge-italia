@@ -453,7 +453,7 @@ def highlight_current_row(row):
     return [""] * len(row)
 
 styled_df = df_steps.style.apply(highlight_current_row, axis=1)
-st.dataframe(styled_df, width="stretch", hide_index=True)
+st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
 # --- 4. GRAFICI, CONSULTAZIONE & SIMULATORE (4 TAB) ---
 st.markdown("---")
