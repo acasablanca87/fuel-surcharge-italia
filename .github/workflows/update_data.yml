@@ -1,9 +1,12 @@
 name: Aggiornamento Dati MASE (Multi-Onda)
 
 on:
-schedule:
-    # 🧪 TEST IMMEDIATO: trigger automatico ogni 5 minuti
-    - cron: '*/5 * * * *'
+  schedule:
+    # ⚡ Martedì: scansione ogni 30 min dalle 10:05 UTC (12:05 IT) alle 18:35 UTC (20:35 IT)
+    - cron: '5 10-18 * * 2'
+    - cron: '35 10-18 * * 2'
+    # 🛡️ Safety fallback: mercoledì mattina alle 06:35 UTC (08:35 IT)
+    - cron: '35 6 * * 3'
   
   # Consente sempre l'avvio manuale immediato con 1 click dalla scheda Actions
   workflow_dispatch:
