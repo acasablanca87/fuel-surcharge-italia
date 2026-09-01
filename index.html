@@ -13,7 +13,7 @@
       body {
         margin: 0;
         padding: 0;
-        background-color: #f8fafc;
+        background-color: #ffffff;
         font-family: 'Titillium Web', sans-serif;
       }
       #loading-screen {
@@ -67,7 +67,6 @@
       async function initApp() {
         try {
           const timestamp = new Date().getTime();
-          // Scarica SEMPRE l'ultima versione senza mai usare cache locale
           const [appCode, calcCode, dataJson] = await Promise.all([
             fetch(`app.py?v=${timestamp}`, { cache: "no-store" }).then(r => {
               if (!r.ok) throw new Error("Impossibile caricare app.py");
@@ -92,6 +91,13 @@
                 "calculation.py": calcCode,
                 "data/gasolio_mase.json": dataJson
               },
+              streamlitConfig: {
+                "theme.base": "light",
+                "theme.primaryColor": "#0284c7",
+                "theme.backgroundColor": "#ffffff",
+                "theme.secondaryBackgroundColor": "#f8fafc",
+                "theme.textColor": "#0f172a"
+              }
             },
             document.getElementById("root")
           );
