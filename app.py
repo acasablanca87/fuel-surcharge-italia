@@ -391,7 +391,7 @@ st.markdown(f"""
     <div class="hero-value {val_class}">{fmt_it(surcharge_pct, 2, sign=True)} %</div>
     <div>
         <span class="metric-pill"><b>Prezzo Rilevato:</b> {fmt_it(current_price, 3)} €/L ({current_eval_label})</span>
-        <span class="metric-pill"><b>Prezzo Base:</b> {fmt_it(target_price, 3)} €/L ({target_label})</span>
+        <span class="metric-pill"><b>Prezzo Target:</b> {fmt_it(target_price, 3)} €/L ({target_label})</span>
         <span class="metric-pill"><b>Variazione Prezzo:</b> {fmt_it(delta_price_pct, 2, sign=True)}%</span>
         <span class="metric-pill"><b>Peso Applicato:</b> {fuel_weight_pct}%</span>
     </div>
