@@ -67,10 +67,14 @@
       async function initApp() {
         try {
           const timestamp = new Date().getTime();
-          // Scarica l'ultimo codice app.py e l'ultimo dataset JSON evitando la cache locale del browser
-          const [appCode, dataJson] = await Promise.all([
+          // Scarica l'app, il modulo di calcolo e il dataset evitando la cache locale
+          const [appCode, calcCode, dataJson] = await Promise.all([
             fetch(`app.py?v=${timestamp}`).then(r => {
               if (!r.ok) throw new Error("Impossibile caricare app.py");
+              return r.text();
+            }),
+            fetch(`calculation.py?v=${timestamp}`).then(r => {
+              if (!r.ok) throw new Error("Impossibile caricare calculation.py");
               return r.text();
             }),
             fetch(`data/gasolio_mase.json?v=${timestamp}`).then(r => {
@@ -85,13 +89,13 @@
               entrypoint: "app.py",
               files: {
                 "app.py": appCode,
+                "calculation.py": calcCode,
                 "data/gasolio_mase.json": dataJson
               },
             },
             document.getElementById("root")
           );
 
-          // Rimuove la schermata di caricamento non appena Stlite è pronto
           setTimeout(() => {
             const loader = document.getElementById("loading-screen");
             if (loader) {
