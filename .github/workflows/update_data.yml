@@ -1,10 +1,21 @@
-name: Aggiornamento Settimanale Dati MASE
+name: Aggiornamento Dati MASE (Multi-Onda)
 
 on:
-  # Esecuzione programmata ogni Martedì alle 11:30 UTC (13:30 ora italiana)
   schedule:
-    - cron: '30 11 * * 2'
-  # Consente anche l'avvio manuale con un click dalla pagina GitHub
+    # ⚡ Martedì ore 12:04 CEST (10:04 UTC) - Partenza Lampo
+    - cron: '4 10 * * 2'
+    # 🌊 Martedì ore 12:34 CEST (10:34 UTC) - Rincalzo
+    - cron: '34 10 * * 2'
+    # 🌊 Martedì ore 14:34 CEST (12:34 UTC) - Primo Pomeriggio
+    - cron: '34 12 * * 2'
+    # 🌊 Martedì ore 17:34 CEST (15:34 UTC) - Tardo Pomeriggio
+    - cron: '34 15 * * 2'
+    # 🌊 Martedì ore 20:34 CEST (18:34 UTC) - Chiusura Serale
+    - cron: '34 18 * * 2'
+    # 🛡️ Mercoledì ore 08:34 CEST (06:34 UTC) - Safety Fallback
+    - cron: '34 6 * * 3'
+  
+  # Consente sempre l'avvio manuale immediato con 1 click dalla scheda Actions
   workflow_dispatch:
 
 permissions:
@@ -32,12 +43,12 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Se il file JSON è stato modificato, fai commit e push
+          # Se il file JSON è stato modificato rispetto a prima, fai commit e push
           if git status --porcelain data/gasolio_mase.json | grep -q "data/gasolio_mase.json"; then
             git add data/gasolio_mase.json
             git commit -m "chore(data): aggiornamento automatico prezzi gasolio MASE [skip ci]"
             git push
-            echo "✅ Nuovi dati MASE pubblicati e salvati nel repository!"
+            echo "✅ Nuovi dati MASE pubblicati e salvati con successo nel repository!"
           else
-            echo "ℹ️ Nessun nuovo dato rilevato: il file è già aggiornato."
+            echo "ℹ️ Nessun nuovo dato ministeriale rilevato: il database è già allineato."
           fi
