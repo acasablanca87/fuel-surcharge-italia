@@ -220,7 +220,7 @@ with st.container(border=True):
     r2_col1, r2_col2 = st.columns(2)
     with r2_col1:
         target_mode = st.selectbox(
-            "Modalità del periodo base (periodo target):",
+            "MODALITÀ del periodo base (periodo target):",
             options=["Anno solare", "Singolo Mese", "Range personalizzato (da / a)"],
             key="target_mode"
         )
@@ -236,7 +236,7 @@ with st.container(border=True):
         if target_mode == "Anno solare":
             available_years = sorted(list(annual_dict.keys()), reverse=True)
             default_year_idx = available_years.index("2025") if "2025" in available_years else 0
-            sel_year = st.selectbox("Anno solare di riferimento:", available_years, index=default_year_idx, key="sel_year")
+            sel_year = st.selectbox("PERIODO TARGET anno solare:", available_years, index=default_year_idx, key="sel_year")
             target_data = annual_dict.get(sel_year, {})
             target_price = target_data.get(active_key, 0.0)
             target_price_pompa = target_data.get("prezzo_pompa", 0.0)
@@ -249,7 +249,7 @@ with st.container(border=True):
             df_m = pd.DataFrame(monthly_list)
             df_m["label"] = df_m["nome_mese"] + " " + df_m["anno"].astype(str)
             month_options = df_m["label"].tolist()[::-1]
-            sel_month = st.selectbox("Mese di riferimento:", month_options, index=0, key="sel_month")
+            sel_month = st.selectbox("PERIODO TARGET mese:", month_options, index=0, key="sel_month")
             matched_row = df_m[df_m["label"] == sel_month].iloc[0]
             target_price = matched_row[active_key]
             target_price_pompa = matched_row["prezzo_pompa"]
@@ -261,11 +261,14 @@ with st.container(border=True):
             target_end_date = date(y_val, m_val, last_day)
 
         else: # Range Personalizzato
+            max_avail_date = get_week_meta(weekly_list[-1]["data"])["obs_end"] if weekly_list else date.today()
+            def_end_date = min(date(2025, 12, 31), max_avail_date)
+            
             sub_col1, sub_col2 = st.columns(2)
             with sub_col1:
-                d_start = st.date_input("Data Inizio:", value=date(2025, 1, 1), key="d_start")
+                d_start = st.date_input("PERIODO TARGET data inizio:", value=date(2025, 1, 1), max_value=max_avail_date, key="d_start")
             with sub_col2:
-                d_end = st.date_input("Data Fine:", value=date(2025, 12, 31), key="d_end")
+                d_end = st.date_input("PERIODO TARGET data fine:", value=def_end_date, max_value=max_avail_date, key="d_end")
             
             # Filtraggio sulla reale finestra di rilevazione (Lunedì-Domenica)
             matched_target_rows = []
@@ -641,9 +644,9 @@ with tab_lookup:
         if lookup_mode == "Intervallo Date (da / a)":
             sub_d1, sub_d2 = st.columns(2)
             with sub_d1:
-                rng_start = st.date_input("Data Inizio:", value=default_rng_start, key="lk_rng_start")
+                rng_start = st.date_input("Data Inizio:", value=default_rng_start, max_value=default_rng_end, key="lk_rng_start")
             with sub_d2:
-                rng_end = st.date_input("Data Fine:", value=default_rng_end, key="lk_rng_end")
+                rng_end = st.date_input("Data Fine:", value=default_rng_end, max_value=default_rng_end, key="lk_rng_end")
                 
             matched_lk_rows = []
             for item in weekly_list:
@@ -702,8 +705,7 @@ with tab_lookup:
             info_badge_text = f"Rilevazione ufficiale del {datetime.strptime(item_row['data'], '%Y-%m-%d').strftime('%d/%m/%Y')}"
 
         else: # Data Esatta (Giorno)
-            def_date = default_rng_end
-            sel_exact_day = st.date_input("Seleziona Data del Trasporto / Documento:", value=def_date, key="lk_day")
+            sel_exact_day = st.date_input("Seleziona Data del Trasporto / Documento:", value=default_rng_end, max_value=default_rng_end, key="lk_day")
             
             matched_item = None
             matched_meta = None
@@ -735,11 +737,20 @@ with tab_lookup:
 
 with tab_simulator:
     st.markdown("###### Simulatore di Fuel Surcharge su Prezzo Ipotetico / Manuale (What-If)")
+    st.markdown(f"<div style='font-size: 0.80rem; color: #64748b; margin-top: -6px; margin-bottom: 12px;'>Base di prezzo di riferimento: <b>{price_type_options[selected_price_type]}</b> (modificabile nei parametri generali in alto)</div>", unsafe_allow_html=True)
     
+    # Prezzo stimato pre-compilato dinamicamente con il risultato calcolato nella Consultazione Libera
+    if active_key == "prezzo_pompa":
+        sim_default_eval = p_pompa_res if p_pompa_res > 0 else (current_price if current_price > 0 else 1.800)
+    elif active_key == "imponibile":
+        sim_default_eval = p_imp_res if p_imp_res > 0 else (current_price if current_price > 0 else 1.450)
+    else:
+        sim_default_eval = p_net_res if p_net_res > 0 else (current_price if current_price > 0 else 0.850)
+
     sim_col1, sim_col2, sim_col3 = st.columns(3)
     with sim_col1:
         sim_p_base = st.number_input(
-            "Prezzo Base di Contratto (€/L):",
+            "Prezzo TARGET (€/L):",
             min_value=0.500,
             max_value=3.500,
             value=float(target_price) if target_price > 0 else 1.650,
@@ -752,7 +763,7 @@ with tab_simulator:
             "Prezzo Gasolio Ipotetico / Stimato (€/L):",
             min_value=0.500,
             max_value=3.500,
-            value=float(current_price) if current_price > 0 else 1.800,
+            value=float(sim_default_eval),
             step=0.005,
             format="%.3f",
             key="sim_eval"
@@ -783,7 +794,7 @@ with tab_simulator:
         <div class="hero-value {sim_class}">{fmt_it(sim_surcharge_pct, 2, sign=True)} %</div>
         <div>
             <span class="metric-pill"><b>Prezzo Ipotetico:</b> {fmt_it(sim_p_eval, 3)} €/L</span>
-            <span class="metric-pill"><b>Prezzo Base:</b> {fmt_it(sim_p_base, 3)} €/L</span>
+            <span class="metric-pill"><b>Prezzo Target:</b> {fmt_it(sim_p_base, 3)} €/L</span>
             <span class="metric-pill"><b>Variazione Stimata:</b> {fmt_it(sim_delta_pct, 2, sign=True)}%</span>
             <span class="metric-pill"><b>Fascia Matrice:</b> da {fmt_it(sim_p_min_bracket, 3)} € a {fmt_it(sim_p_max_bracket, 3)} € (scaglione {fmt_it(sim_step_center, 2, sign=True)}%)</span>
         </div>
