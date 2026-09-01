@@ -28,10 +28,10 @@ jobs:
 
     steps:
       - name: 📥 Scarica il repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: 🐍 Configura Python 3.13
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: '3.13'
 
@@ -47,7 +47,7 @@ jobs:
           # Se il file JSON è stato modificato rispetto a prima, fai commit e push
           if git status --porcelain data/gasolio_mase.json | grep -q "data/gasolio_mase.json"; then
             git add data/gasolio_mase.json
-            git commit -m "chore(data): aggiornamento automatico prezzi gasolio MASE [skip ci]"
+            git commit -m "chore(data): aggiornamento automatico prezzi gasolio MASE"
             git push
             echo "✅ Nuovi dati MASE pubblicati e salvati con successo nel repository!"
           else

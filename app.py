@@ -115,8 +115,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- CARICAMENTO DATI CERTIFICATI MASE ---
-@st.cache_data(ttl=3600)
 def load_data() -> dict:
+    """Carica il dataset MASE istantaneamente da disco per garantire dati sempre in tempo reale."""
     data_path = Path("data/gasolio_mase.json")
     if not data_path.exists():
         raise FileNotFoundError("Dataset MASE non disponibile. Eseguire prima fetch_data.py.")
