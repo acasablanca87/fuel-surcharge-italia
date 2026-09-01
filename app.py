@@ -53,7 +53,7 @@ st.markdown("""
         text-transform: uppercase;
         letter-spacing: 0.8px;
         margin-bottom: 1.2rem;
-        color: #0f172a !important;
+        color: var(--text-color) !important;
     }
 
     /* GRASSETTO SUI MENU A TENDINA */
@@ -61,10 +61,10 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
-    /* HERO CARD */
+    /* HERO CARD DINAMICA LIGHT / DARK */
     .hero-card {
-        background-color: #f8fafc;
-        border: 1px solid #cbd5e1;
+        background-color: var(--secondary-background-color);
+        border: 1px solid rgba(128, 128, 128, 0.22);
         border-radius: 10px;
         padding: 22px 26px;
         margin-bottom: 1.2rem;
@@ -73,7 +73,8 @@ st.markdown("""
         font-size: 0.85rem;
         text-transform: uppercase;
         letter-spacing: 1.2px;
-        color: #64748b;
+        color: var(--text-color);
+        opacity: 0.75;
         font-weight: 600;
     }
     .hero-value {
@@ -85,18 +86,18 @@ st.markdown("""
     }
     .hero-positive { color: #dc2626; }
     .hero-negative { color: #16a34a; }
-    .hero-neutral { color: #0f172a; }
+    .hero-neutral { color: var(--text-color); }
     
     .metric-pill {
         display: inline-block;
-        background: #f1f5f9;
-        border: 1px solid #cbd5e1;
+        background: rgba(128, 128, 128, 0.12);
+        border: 1px solid rgba(128, 128, 128, 0.22);
         border-radius: 6px;
         padding: 6px 12px;
         margin-right: 8px;
         margin-bottom: 6px;
         font-size: 0.85rem;
-        color: #0f172a;
+        color: var(--text-color);
     }
     .source-badge {
         font-size: 0.75rem;
