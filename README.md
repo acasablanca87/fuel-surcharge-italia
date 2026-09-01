@@ -1,4 +1,3 @@
-```markdown
 # ⛽ FUEL SURCHARGE ITALIA
 > **Indice, benchmark e simulatore ufficiale di adeguamento costo carburante per l'autotrasporto merci (Gasolio Auto).**
 
@@ -40,7 +39,7 @@
 | Piattaforma | URL di Accesso | Tecnologia | Uptime / Caratteristiche |
 | :--- | :--- | :--- | :--- |
 | **Canale 1 (Principale)** | 👉 **[`acasablanca87.github.io/fuel-surcharge-italia`](https://acasablanca87.github.io/fuel-surcharge-italia/)** | Stlite (WebAssembly) su GitHub Pages | 🟢 **100% Serverless** (Zero backend, non può andare in sleep per definizione) |
-| **Canale 2 (Nativo)** | 👉 **[`fuel-surcharge-italia.streamlit.app`](https://fuel-surcharge-italia.streamlit.app)** | Streamlit Community Cloud | 🟢 **Container Nativo** (Monitorato da Keep-Alive ogni 48 ore) |
+| **Canale 2 (Nativo)** | 👉 **[`fuel-surcharge-italia.streamlit.app`](https://fuel-surcharge-italia.streamlit.app)** | Streamlit Community Cloud | 🟢 **Container Nativo** (verificato quotidianamente) |
 | **Fonte Ministeriale** | 👉 [Portale DGSAIE Prezzi Carburanti](https://sisen.mase.gov.it/dgsaie/prezzi-settimanali-carburanti) | Open Data MASE | 🏛️ Aggiornato ogni Martedì |
 
 ---
@@ -58,18 +57,18 @@ Il sistema adotta un'architettura disaccoppiata ad alte prestazioni alimentata d
                                        │ ──► Filtra solo Gasolio Auto (Codice 2)
                                        │ ──► Converte da €/1.000L a €/L
                                        ▼
-                       [data/gasolio_mase.json] (< 50KB)
+                       [data/gasolio_mase.json] (dataset versionato)
                                        │
           ┌────────────────────────────┴───────────────────────────┐
           ▼                                                        ▼
 [Canale 1: GitHub Pages]                                 [Canale 2: Streamlit Cloud]
 Stlite WebAssembly client-side                           Container Python nativo
-(index.html + app.py statici)                            (Monitorato da keep_alive.yml ogni 48h)
+(index.html + app.py statici)                            (Verificato quotidianamente)
 ```
 
 ### I Robot GitHub Actions:
-1. **`update_data.yml` (ETL Prezzi MASE):** Si sveglia ogni martedì alle 13:30 italiane, scarica i dati ufficiali, aggiorna la serie storica e invia un commit automatico.
-2. **`keep_alive.yml` (Anti-Sleep Monitor):** Si attiva ogni 48 ore alle 09:00 italiane per effettuare un health-check sul server di Streamlit Cloud mantenendo il container sempre attivo.
+1. **`update_data.yml` (ETL Prezzi MASE):** Esegue sei tentativi programmati tra martedì e mercoledì (orari UTC nel workflow), scarica i dati ufficiali, li valida e aggiorna la serie storica solo se coerente.
+2. **`keep_alive.yml` (Monitor Streamlit):** Si attiva ogni giorno alle 07:00 UTC (08:00 CET / 09:00 CEST) per verificare la disponibilità dell'app Streamlit Cloud.
 
 ---
 
@@ -77,7 +76,7 @@ Stlite WebAssembly client-side                           Container Python nativo
 
 Nella sezione inferiore dell'applicazione è disponibile una suite completa di 4 strumenti dedicati:
 
-1. **📊 Andamento Storico Prezzi:** Grafico Plotly interattivo delle 4 componenti dal 2005 a oggi, con preset di zoom rapido (`1 Anno`, `3 Anni` default, `5 Anni`, `Tutto`) e range-slider inferiore.
+1. **📊 Andamento Storico Prezzi:** Grafico Plotly interattivo delle 4 componenti per l'intera serie settimanale disponibile, con preset di zoom rapido (`1 Anno`, `3 Anni` default, `5 Anni`, `Tutto`) e range-slider inferiore.
 2. **📈 Trend Fuel Surcharge (%):** Confronto bi-curva in tempo reale tra il Surcharge applicato su *Base Pompa* e su *Base Netto Industriale* calcolato a partire dal periodo target.
 3. **🔍 Consultazione Libera Prezzi (Quick Lookup a 5 Vie):** Motore di ricerca istantaneo dei prezzi storici svincolato dalle formule di surcharge, con supporto per:
    * *Intervallo Date (da / a)* (preimpostato di default sul mese in corso con calcolo media, min e max).
@@ -144,23 +143,39 @@ git clone https://github.com/acasablanca87/fuel-surcharge-italia.git
 cd fuel-surcharge-italia
 ```
 
-### 2. Installare le Dipendenze
+### 2. Creare un Ambiente Locale e Installare le Dipendenze
+L'ambiente virtuale mantiene le librerie del progetto separate da quelle di sistema.
+
+**Windows (PowerShell):**
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+**macOS:**
 ```bash
-pip install -r requirements.txt
+python3 -m venv .venv
+./.venv/bin/python -m pip install -r requirements.txt
 ```
 
 ### 3. Aggiornare i Dati Manualmente (Opzionale)
+```powershell
+# Windows (PowerShell)
+.\.venv\Scripts\python.exe fetch_data.py
+```
+
 ```bash
-python fetch_data.py
+# macOS
+./.venv/bin/python fetch_data.py
 ```
 
 ### 4. Avviare l'Applicazione in Locale
 ```bash
-# Avvio standard
-streamlit run app.py
+# Windows (PowerShell)
+.\.venv\Scripts\python.exe -m streamlit run app.py
 
-# Su Windows (se il comando streamlit non è nel PATH)
-python -m streamlit run app.py
+# macOS
+./.venv/bin/python -m streamlit run app.py
 ```
 L'app sarà attiva in tempo reale su `http://localhost:8501`.
 
@@ -199,4 +214,3 @@ Spunti architetturali per sessioni di sviluppo future:
 ---
 
 *Progetto sviluppato con approccio Vibe-Coding e architettura Serverless WebAssembly.*
-```

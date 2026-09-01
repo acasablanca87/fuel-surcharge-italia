@@ -1,0 +1,22 @@
+name: Test applicazione
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Scarica il repository
+        uses: actions/checkout@v6
+      - name: Configura Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Esegui i test della logica di calcolo e dei dati
+        run: python -m unittest discover -s tests -v

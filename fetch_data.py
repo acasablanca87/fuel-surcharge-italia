@@ -1,137 +1,152 @@
-import json
-import urllib.request
-import ssl
-from pathlib import Path
-from datetime import datetime
+"""Scarica, valida e normalizza i prezzi ufficiali MASE del gasolio auto."""
 
-# Endpoint ufficiali MASE (DGSAIE)
+import json
+import ssl
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+
 URL_WEEKLY = "https://sisen.mase.gov.it/dgsaie/api/v1/weekly-prices/report/export?type=ALL&format=JSON&lang=it"
 URL_MONTHLY = "https://sisen.mase.gov.it/dgsaie/api/v1/monthly-prices/export?format=JSON&lang=it"
+OUTPUT_FILE = Path("data/gasolio_mase.json")
+
+
+class DataValidationError(ValueError):
+    """Il MASE ha restituito dati incompleti o incoerenti."""
+
 
 def fetch_json(url: str) -> list[dict]:
-    """Scarica il JSON dall'endpoint con User-Agent moderno."""
+    """Scarica un elenco JSON dall'endpoint MASE."""
     headers = {"User-Agent": "Mozilla/5.0 (compatible; FuelSurchargeItalia/1.0)"}
-    req = urllib.request.Request(url, headers=headers)
-    ctx = ssl.create_default_context()
-    
-    with urllib.request.urlopen(req, context=ctx, timeout=30) as response:
+    request = urllib.request.Request(url, headers=headers)
+    context = ssl.create_default_context()
+    with urllib.request.urlopen(request, context=context, timeout=30) as response:
         if response.status != 200:
             raise RuntimeError(f"Errore HTTP {response.status} durante il download da {url}")
-        return json.loads(response.read().decode("utf-8"))
+        payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, list) or not all(isinstance(row, dict) for row in payload):
+        raise DataValidationError("Il MASE non ha restituito l'elenco di rilevazioni atteso.")
+    return payload
 
-def parse_float(val: str | float | None) -> float:
-    """Converte le stringhe del MASE (€/1.000L) in float €/Litro."""
-    if val is None:
-        return 0.0
+
+def parse_float(value: str | float | int | None, field_name: str) -> float:
+    """Converte un valore MASE da €/1.000 L a €/L, senza nascondere errori."""
+    if value is None or str(value).strip() == "":
+        raise DataValidationError(f"Campo MASE mancante: {field_name}.")
     try:
-        return round(float(str(val).replace(",", ".")) / 1000.0, 4)
-    except ValueError:
-        return 0.0
+        parsed = round(float(str(value).replace(",", ".")) / 1000.0, 4)
+    except (TypeError, ValueError) as exc:
+        raise DataValidationError(f"Valore MASE non valido per {field_name}: {value!r}.") from exc
+    if parsed <= 0:
+        raise DataValidationError(f"Valore MASE non positivo per {field_name}: {value!r}.")
+    return parsed
 
-def process_data():
+
+def is_gasolio_auto(row: dict) -> bool:
+    return str(row.get("CODICE_PRODOTTO", "")).strip() == "2" or row.get("NOME_PRODOTTO") == "Gasolio auto"
+
+
+def validate_price_components(pompa: float, netto: float, accisa: float, iva: float) -> None:
+    """Verifica l'identità base: prezzo alla pompa = netto + accisa + IVA."""
+    if abs(pompa - (netto + accisa + iva)) > 0.001:
+        raise DataValidationError(
+            "Componenti del prezzo MASE incoerenti: prezzo alla pompa diverso dalla somma di netto, accisa e IVA."
+        )
+
+
+def normalize_price_row(row: dict, date_value: str | None = None) -> dict:
+    pompa = parse_float(row.get("PREZZO"), "PREZZO")
+    accisa = parse_float(row.get("ACCISA"), "ACCISA")
+    iva = parse_float(row.get("IVA"), "IVA")
+    netto = parse_float(row.get("NETTO"), "NETTO")
+    validate_price_components(pompa, netto, accisa, iva)
+    result = {
+        "prezzo_pompa": pompa,
+        "imponibile": round(netto + accisa, 4),
+        "netto": netto,
+        "accisa": accisa,
+        "iva": iva,
+    }
+    if date_value is not None:
+        try:
+            datetime.strptime(date_value, "%Y-%m-%d")
+        except (TypeError, ValueError) as exc:
+            raise DataValidationError(f"DATA_RILEVAZIONE non valida: {date_value!r}.") from exc
+        result["data"] = date_value
+    return result
+
+
+def ensure_unique(rows: list[dict], fields: tuple[str, ...], label: str) -> None:
+    keys = [tuple(row[field] for field in fields) for row in rows]
+    if len(keys) != len(set(keys)):
+        raise DataValidationError(f"Il MASE ha restituito {label} duplicati.")
+
+
+def process_data() -> None:
     print("🚀 [1/3] Connessione ai server MASE in corso...")
-    
-    # 1. Download dati
     raw_weekly = fetch_json(URL_WEEKLY)
     raw_monthly = fetch_json(URL_MONTHLY)
-    
     print(f"📦 Ricevuti {len(raw_weekly)} record settimanali e {len(raw_monthly)} mensili.")
 
-    # 2. Filtraggio Gasolio Auto (CODICE_PRODOTTO == 2)
-    # --- SERIE SETTIMANALE ---
-    weekly_history = []
-    for row in raw_weekly:
-        if row.get("CODICE_PRODOTTO") == 2 or row.get("NOME_PRODOTTO") == "Gasolio auto":
-            pompa = parse_float(row.get("PREZZO"))
-            accisa = parse_float(row.get("ACCISA"))
-            iva = parse_float(row.get("IVA"))
-            netto = parse_float(row.get("NETTO"))
-            imponibile = round(netto + accisa, 4)
-            
-            weekly_history.append({
-                "data": row.get("DATA_RILEVAZIONE"),
-                "prezzo_pompa": pompa,
-                "imponibile": imponibile,
-                "netto": netto,
-                "accisa": accisa,
-                "iva": iva
-            })
-            
-    # Ordina cronologicamente (dal più vecchio al più recente)
-    weekly_history.sort(key=lambda x: x["data"])
+    weekly_history = [
+        normalize_price_row(row, row.get("DATA_RILEVAZIONE"))
+        for row in raw_weekly if is_gasolio_auto(row)
+    ]
+    weekly_history.sort(key=lambda item: item["data"])
+    ensure_unique(weekly_history, ("data",), "rilevazioni settimanali")
 
-    # --- SERIE MENSILE E ANNUALE ---
     monthly_history = []
     annual_history = {}
-
     for row in raw_monthly:
-        if row.get("CODICE_PRODOTTO") == 2 or row.get("NOME_PRODOTTO") == "Gasolio auto":
-            cod_mese = int(row.get("CODICE_MESE", 0))
-            anno = int(row.get("ANNO", 0))
-            pompa = parse_float(row.get("PREZZO"))
-            accisa = parse_float(row.get("ACCISA"))
-            iva = parse_float(row.get("IVA"))
-            netto = parse_float(row.get("NETTO"))
-            imponibile = round(netto + accisa, 4)
-            
-            item = {
-                "anno": anno,
-                "prezzo_pompa": pompa,
-                "imponibile": imponibile,
-                "netto": netto,
-                "accisa": accisa,
-                "iva": iva
-            }
+        if not is_gasolio_auto(row):
+            continue
+        try:
+            month_code, year = int(row.get("CODICE_MESE", 0)), int(row.get("ANNO", 0))
+        except (TypeError, ValueError) as exc:
+            raise DataValidationError(f"Anno o codice mese MASE non validi: {row!r}.") from exc
+        if year < 1990:
+            raise DataValidationError(f"Anno MASE non valido: {year}.")
 
-            # CODICE_MESE 13 = Medie Annuali Ufficiali
-            if cod_mese == 13:
-                annual_history[str(anno)] = item
-            # CODICE_MESE da 1 a 12 = Mesi singoli
-            elif 1 <= cod_mese <= 12:
-                item["mese"] = cod_mese
-                item["nome_mese"] = row.get("NOME_MESE")
-                monthly_history.append(item)
+        item = {"anno": year, **normalize_price_row(row)}
+        if month_code == 13:
+            if str(year) in annual_history:
+                raise DataValidationError(f"Media annuale MASE duplicata per {year}.")
+            annual_history[str(year)] = item
+        elif 1 <= month_code <= 12:
+            month_name = row.get("NOME_MESE")
+            if not isinstance(month_name, str) or not month_name.strip():
+                raise DataValidationError(f"NOME_MESE mancante per {month_code}/{year}.")
+            item.update({"mese": month_code, "nome_mese": month_name.strip()})
+            monthly_history.append(item)
 
-    # Ordina mensile per anno e mese
-    monthly_history.sort(key=lambda x: (x["anno"], x["mese"]))
+    monthly_history.sort(key=lambda item: (item["anno"], item["mese"]))
+    ensure_unique(monthly_history, ("anno", "mese"), "rilevazioni mensili")
+    if len(weekly_history) < 100 or len(monthly_history) < 24 or len(annual_history) < 5:
+        raise DataValidationError("Serie storica MASE incompleta: aggiornamento annullato per proteggere i dati esistenti.")
 
-    # 3. Creazione payload unificato
     output_data = {
         "metadata": {
             "source": "MASE - Ministero dell'Ambiente e della Sicurezza Energetica (DGSAIE)",
-            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "last_updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "product": "Gasolio auto",
-            "unit": "EUR/Litri",
+            "unit": "EUR/L",
             "weekly_count": len(weekly_history),
             "monthly_count": len(monthly_history),
-            "annual_count": len(annual_history)
+            "annual_count": len(annual_history),
         },
         "annual_averages": annual_history,
         "monthly_history": monthly_history,
-        "weekly_history": weekly_history
+        "weekly_history": weekly_history,
     }
+    OUTPUT_FILE.parent.mkdir(exist_ok=True)
+    temporary_file = OUTPUT_FILE.with_suffix(".tmp")
+    temporary_file.write_text(json.dumps(output_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary_file.replace(OUTPUT_FILE)
 
-    # 4. Salvataggio su file JSON locale
-    output_dir = Path("data")
-    output_dir.mkdir(exist_ok=True)
-    output_file = output_dir / "gasolio_mase.json"
-
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(output_data, f, ensure_ascii=False, indent=2)
-
-    print(f"✅ [2/3] Elaborazione completata con successo!")
+    print("✅ [2/3] Elaborazione e validazione completate con successo!")
     print(f"📊 Gasolio Auto: {len(weekly_history)} settimane, {len(monthly_history)} mesi, {len(annual_history)} medie annuali.")
-    print(f"💾 [3/3] File salvato in: {output_file.resolve()}")
+    print(f"💾 [3/3] File salvato in: {OUTPUT_FILE.resolve()}")
 
-    # Anteprima ultimo dato
-    if weekly_history:
-        ultimo = weekly_history[-1]
-        print(f"\n🔍 ULTIMA RILEVAZIONE SETTIMANALE DISPONIBILE:")
-        print(f"   📅 Data: {ultimo['data']}")
-        print(f"   ⛽ Prezzo alla Pompa: {ultimo['prezzo_pompa']:.4f} €/L")
-        print(f"   🏢 Imponibile B2B:    {ultimo['imponibile']:.4f} €/L")
-        print(f"   🏭 Netto Industriale: {ultimo['netto']:.4f} €/L")
-        print(f"   🏛️  Accisa:            {ultimo['accisa']:.4f} €/L")
 
 if __name__ == "__main__":
     process_data()

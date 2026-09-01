@@ -1,9 +1,9 @@
 name: Keep-Alive Streamlit Cloud
 
 on:
-  # Esecuzione programmata ogni 2 giorni alle 07:00 UTC (09:00 ora italiana)
+  # Esecuzione quotidiana alle 07:00 UTC (08:00 CET / 09:00 CEST).
   schedule:
-    - cron: '0 7 */2 * *'
+    - cron: '0 7 * * *'
   # Consente anche l'avvio manuale con un click dalla pagina GitHub
   workflow_dispatch:
 

@@ -5,6 +5,7 @@ import calendar
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+from calculation import calculate_surcharge, price_bracket
 
 # --- CONFIGURAZIONE PAGINA STREAMLIT ---
 st.set_page_config(
@@ -68,6 +69,13 @@ st.markdown("""
         padding: 22px 26px;
         margin-bottom: 1.2rem;
     }
+
+    /* PANNELLO PARAMETRI: fondo distinto per separare chiaramente i controlli dal risultato */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background: linear-gradient(135deg, rgba(8, 47, 73, 0.72), rgba(15, 23, 42, 0.72));
+        border-color: rgba(56, 189, 248, 0.42);
+        box-shadow: 0 8px 24px rgba(2, 132, 199, 0.08);
+    }
     .hero-title {
         font-size: 0.85rem;
         text-transform: uppercase;
@@ -118,16 +126,24 @@ st.markdown("""
 def load_data() -> dict:
     data_path = Path("data/gasolio_mase.json")
     if not data_path.exists():
-        import fetch_data
-        fetch_data.process_data()
+        raise FileNotFoundError("Dataset MASE non disponibile. Eseguire prima fetch_data.py.")
     with open(data_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-data = load_data()
+try:
+    data = load_data()
+except (OSError, json.JSONDecodeError) as exc:
+    st.error(f"Impossibile caricare i dati MASE: {exc}")
+    st.stop()
+
 weekly_list = data.get("weekly_history", [])
 monthly_list = data.get("monthly_history", [])
 annual_dict = data.get("annual_averages", {})
 metadata = data.get("metadata", {})
+
+if not weekly_list or not monthly_list or not annual_dict:
+    st.error("Il dataset MASE è incompleto. Riprovare dopo il prossimo aggiornamento dati.")
+    st.stop()
 
 # --- GESTIONE STATO INIZIALE & URL (ANTI-RACE CONDITION) ---
 price_type_options = {
@@ -372,9 +388,9 @@ with st.container(border=True):
         commercial_app_text = "Percentuale rilevata sulla settimana selezionata, convenzionalmente valida per la fatturazione della settimana successiva (salvo diversi accordi tra le parti)."
 
 # CALCOLO SURCHARGE
-delta_price = current_price - target_price
-delta_price_pct = (delta_price / target_price) * 100 if target_price > 0 else 0.0
-surcharge_pct = delta_price_pct * (fuel_weight_pct / 100.0)
+delta_price, delta_price_pct, surcharge_pct = calculate_surcharge(
+    target_price, current_price, fuel_weight_pct
+)
 
 # CLASSIFICAZIONE COLORE
 if surcharge_pct > 0.00001:
@@ -413,8 +429,7 @@ for s in steps:
     s_min = s - 0.25
     s_max = s + 0.25
     
-    p_min = target_price * (1 + (s_min / fuel_weight_pct))
-    p_max = target_price * (1 + (s_max / fuel_weight_pct))
+    p_min, p_max = price_bracket(target_price, s, fuel_weight_pct)
     
     is_current = (s_min <= surcharge_pct < s_max)
     
@@ -438,7 +453,7 @@ def highlight_current_row(row):
     return [""] * len(row)
 
 styled_df = df_steps.style.apply(highlight_current_row, axis=1)
-st.dataframe(styled_df, use_container_width=True, hide_index=True)
+st.dataframe(styled_df, width="stretch", hide_index=True)
 
 # --- 4. GRAFICI, CONSULTAZIONE & SIMULATORE (4 TAB) ---
 st.markdown("---")
@@ -519,7 +534,7 @@ with tab_chart:
         template="plotly_white",
         font=dict(family="Titillium Web, sans-serif")
     )
-    st.plotly_chart(fig_prices, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig_prices, width="stretch", config={"displayModeBar": False})
 
 with tab_surcharge:
     surcharge_points = []
@@ -612,7 +627,7 @@ with tab_surcharge:
             template="plotly_white",
             font=dict(family="Titillium Web, sans-serif")
         )
-        st.plotly_chart(fig_sur, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_sur, width="stretch", config={"displayModeBar": False})
     else:
         st.info(f"Il Periodo Target selezionato ({target_label}) coincide con i dati più recenti disponibili. Seleziona un Periodo Base antecedente (es. Anno 2025) per osservare l'evoluzione del Fuel Surcharge nel tempo.")
 
@@ -777,14 +792,15 @@ with tab_simulator:
             key="sim_weight_sel"
         )
         
-    sim_delta = sim_p_eval - sim_p_base
-    sim_delta_pct = (sim_delta / sim_p_base) * 100 if sim_p_base > 0 else 0.0
-    sim_surcharge_pct = sim_delta_pct * (sim_weight / 100.0)
+    sim_delta, sim_delta_pct, sim_surcharge_pct = calculate_surcharge(
+        sim_p_base, sim_p_eval, sim_weight
+    )
     
     # Scaglione corrispondente
     sim_step_center = round(sim_surcharge_pct * 2) / 2
-    sim_p_min_bracket = sim_p_base * (1 + ((sim_step_center - 0.25) / sim_weight))
-    sim_p_max_bracket = sim_p_base * (1 + ((sim_step_center + 0.25) / sim_weight))
+    sim_p_min_bracket, sim_p_max_bracket = price_bracket(
+        sim_p_base, sim_step_center, sim_weight
+    )
     
     sim_class = "hero-positive" if sim_surcharge_pct > 0.0001 else ("hero-negative" if sim_surcharge_pct < -0.0001 else "hero-neutral")
     

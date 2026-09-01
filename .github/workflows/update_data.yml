@@ -2,17 +2,18 @@ name: Aggiornamento Dati MASE (Multi-Onda)
 
 on:
   schedule:
-    # ⚡ Martedì ore 12:04 CEST (10:04 UTC) - Partenza Lampo
+    # ⚡ Orari in UTC: 10:04, 10:34, 12:34, 15:34 e 18:34 di martedì.
+    # In Italia aggiungere 1 ora in CET e 2 ore in CEST.
     - cron: '4 10 * * 2'
-    # 🌊 Martedì ore 12:34 CEST (10:34 UTC) - Rincalzo
+    # 🌊 Rincalzo
     - cron: '34 10 * * 2'
-    # 🌊 Martedì ore 14:34 CEST (12:34 UTC) - Primo Pomeriggio
+    # 🌊 Primo pomeriggio
     - cron: '34 12 * * 2'
-    # 🌊 Martedì ore 17:34 CEST (15:34 UTC) - Tardo Pomeriggio
+    # 🌊 Tardo pomeriggio
     - cron: '34 15 * * 2'
-    # 🌊 Martedì ore 20:34 CEST (18:34 UTC) - Chiusura Serale
+    # 🌊 Chiusura serale
     - cron: '34 18 * * 2'
-    # 🛡️ Mercoledì ore 08:34 CEST (06:34 UTC) - Safety Fallback
+    # 🛡️ Safety fallback: mercoledì 06:34 UTC.
     - cron: '34 6 * * 3'
   
   # Consente sempre l'avvio manuale immediato con 1 click dalla scheda Actions
