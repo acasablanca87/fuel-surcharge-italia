@@ -1,11 +1,11 @@
 {
   "metadata": {
     "source": "MASE - Ministero dell'Ambiente e della Sicurezza Energetica (DGSAIE)",
-    "last_updated": "2026-09-02T11:39:59+00:00",
+    "last_updated": "2026-09-08T14:24:43+00:00",
     "product": "Gasolio auto",
     "unit": "EUR/L",
-    "weekly_count": 1093,
-    "monthly_count": 367,
+    "weekly_count": 1094,
+    "monthly_count": 368,
     "annual_count": 30
   },
   "annual_averages": {
@@ -3920,6 +3920,16 @@
       "iva": 0.3655,
       "mese": 7,
       "nome_mese": "Luglio"
+    },
+    {
+      "anno": 2026,
+      "prezzo_pompa": 2.1003,
+      "imponibile": 1.7216,
+      "netto": 1.1887,
+      "accisa": 0.5329,
+      "iva": 0.3787,
+      "mese": 8,
+      "nome_mese": "Agosto"
     }
   ],
   "weekly_history": [
@@ -12666,6 +12676,14 @@
       "accisa": 0.5329,
       "iva": 0.3829,
       "data": "2026-08-31"
+    },
+    {
+      "prezzo_pompa": 2.1418,
+      "imponibile": 1.7556,
+      "netto": 1.2227,
+      "accisa": 0.5329,
+      "iva": 0.3862,
+      "data": "2026-09-07"
     }
   ]
 }
